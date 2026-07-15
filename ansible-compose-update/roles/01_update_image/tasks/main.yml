@@ -1,0 +1,106 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Role       : 01_update_image
+# Tujuan     : Update image di docker-compose.yaml, SKIP node yang sudah sesuai
+# Caller     : playbooks/compose_update.yml (PHASE 1)
+# Dependensi : Tidak ada
+# Side Effects: Write ke docker-compose.yaml (backup dulu ke .bak)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── Parse node list dari inventory ──────────────────────────────────────────
+- name: Set node list dari inventory
+  ansible.builtin.set_fact:
+    node_list: "{{ compose_nodes.split(',') }}"
+
+- name: Tampilkan node yang akan dicek di {{ inventory_hostname }}
+  ansible.builtin.debug:
+    msg: "📋 {{ inventory_hostname }} ({{ ansible_host }}) | Nodes: {{ node_list }}"
+
+# ─── Cek compose file ada ────────────────────────────────────────────────────
+- name: Cek compose file exists di tiap node
+  ansible.builtin.stat:
+    path: "{{ compose_base_dir }}/{{ item }}/docker-compose.yaml"
+  register: compose_stat
+  loop: "{{ node_list }}"
+
+- name: Gagal jika ada compose file tidak ditemukan
+  ansible.builtin.fail:
+    msg: "❌ Compose file tidak ditemukan: {{ compose_base_dir }}/{{ item.item }}/docker-compose.yaml"
+  when: not item.stat.exists
+  loop: "{{ compose_stat.results }}"
+
+# ─── Cek image versi sekarang ────────────────────────────────────────────────
+- name: Cek image versi sekarang di compose
+  ansible.builtin.shell: |
+    grep -E '^\s*image:\s' {{ compose_base_dir }}/{{ item }}/docker-compose.yaml | head -1 | sed 's/^[[:space:]]*image:[[:space:]]*//'
+  register: current_image
+  changed_when: false
+  loop: "{{ node_list }}"
+
+- name: Tampilkan image sekarang
+  ansible.builtin.debug:
+    msg: "🔍 {{ inventory_hostname }}/{{ item.item }} | Image sekarang: {{ item.stdout | trim }}"
+  loop: "{{ current_image.results }}"
+
+# ─── Tentukan node mana yang perlu diupdate ──────────────────────────────────
+- name: Tentukan nodes yang perlu diupdate (image berbeda)
+  ansible.builtin.set_fact:
+    nodes_to_update: >-
+      {{ current_image.results
+         | selectattr('stdout', 'defined')
+         | rejectattr('stdout', 'search', new_image)
+         | map(attribute='item')
+         | list }}
+    nodes_already_ok: >-
+      {{ current_image.results
+         | selectattr('stdout', 'defined')
+         | selectattr('stdout', 'search', new_image)
+         | map(attribute='item')
+         | list }}
+
+- name: "✅ Nodes yang sudah sesuai (SKIP)"
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} | {{ nodes_already_ok | length }} node sudah pakai {{ new_image }}: {{ nodes_already_ok | join(', ') | default('tidak ada', true) }}"
+  when: nodes_already_ok | length > 0
+
+- name: "🔄 Nodes yang perlu diupdate"
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} | {{ nodes_to_update | length }} node perlu diupdate: {{ nodes_to_update | join(', ') | default('tidak ada', true) }}"
+
+# ─── Backup & update HANYA node yang belum sesuai ────────────────────────────
+- name: Backup docker-compose.yaml sebelum diubah
+  ansible.builtin.copy:
+    src: "{{ compose_base_dir }}/{{ item }}/docker-compose.yaml"
+    dest: "{{ compose_base_dir }}/{{ item }}/docker-compose.yaml.bak"
+    remote_src: true
+  loop: "{{ nodes_to_update }}"
+  when: nodes_to_update | length > 0
+
+- name: Ganti image ke versi baru di node yang perlu update
+  ansible.builtin.replace:
+    path: "{{ compose_base_dir }}/{{ item }}/docker-compose.yaml"
+    regexp: '^\s*image:\s.*visionaire4:.*$'
+    replace: "    image: {{ new_image }}"
+  loop: "{{ nodes_to_update }}"
+  when: nodes_to_update | length > 0
+
+# ─── Verifikasi image sudah terganti ─────────────────────────────────────────
+- name: Verifikasi image baru di compose
+  ansible.builtin.shell: |
+    grep -E '^\s*image:\s' {{ compose_base_dir }}/{{ item }}/docker-compose.yaml | head -1 | sed 's/^[[:space:]]*//'
+  register: new_image_check
+  changed_when: false
+  loop: "{{ nodes_to_update }}"
+  when: nodes_to_update | length > 0
+
+- name: Tampilkan image setelah diganti
+  ansible.builtin.debug:
+    msg: "✅ {{ inventory_hostname }}/{{ item.item }} | Image baru: {{ item.stdout | trim }}"
+  loop: "{{ new_image_check.results | default([]) }}"
+  when: nodes_to_update | length > 0
+
+# ─── Set fact untuk PHASE 2 ──────────────────────────────────────────────────
+- name: Simpan daftar nodes_to_update untuk PHASE 2
+  ansible.builtin.set_fact:
+    nodes_to_update: "{{ nodes_to_update }}"
+    cacheable: true

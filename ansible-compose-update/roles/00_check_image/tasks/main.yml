@@ -1,0 +1,45 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Role       : 00_check_image
+# Tujuan     : Cek image yang sedang digunakan di docker-compose.yaml tiap node
+# Caller     : playbooks/check_images.yml
+# Dependensi : Tidak ada (read-only, tidak mengubah apapun)
+# Side Effects: None
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── Parse node list dari inventory ──────────────────────────────────────────
+- name: Set node list dari inventory
+  ansible.builtin.set_fact:
+    node_list: "{{ compose_nodes.split(',') }}"
+
+- name: "📋 Server {{ inventory_hostname }} ({{ ansible_host }}) — Nodes yang dicek"
+  ansible.builtin.debug:
+    msg: "{{ node_list | join(', ') }}"
+
+# ─── Cek compose file exists ────────────────────────────────────────────────
+- name: Cek compose file exists di tiap node
+  ansible.builtin.stat:
+    path: "{{ compose_base_dir }}/{{ item }}/docker-compose.yaml"
+  register: compose_stat
+  loop: "{{ node_list }}"
+
+# ─── Ambil image aktif (bukan yang di-comment) ──────────────────────────────
+- name: Grep image aktif dari docker-compose.yaml
+  ansible.builtin.shell: |
+    grep -E '^\s*image:\s' {{ compose_base_dir }}/{{ item.item }}/docker-compose.yaml 2>/dev/null | head -1 | sed 's/^[[:space:]]*//'
+  register: image_results
+  changed_when: false
+  when: item.stat.exists
+  loop: "{{ compose_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# ─── Tampilkan hasil ringkas per node ────────────────────────────────────────
+- name: "🔍 Image saat ini di {{ inventory_hostname }}"
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}/{{ item.item.item }}:
+      {{ item.stdout | default('FILE NOT FOUND') | trim | default('N/A', true) }}
+  loop: "{{ image_results.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.item | default('unknown') }}"

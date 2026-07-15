@@ -1,0 +1,190 @@
+---
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 1: Pull image di source server (server01 Cikeas)
+# ══════════════════════════════════════════════════════════════════════════════
+- name: "PHASE 1 — Pull Docker Image di Source Server"
+  hosts: source_server
+  become: true
+  gather_facts: false
+
+  vars:
+    docker_image: "registry.gitlab.com/nodefluxio/visionaire4:4.57.51-rc1"
+
+  roles:
+    - 01_pull_image
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 2: Save image jadi tar.gz di source server
+# ══════════════════════════════════════════════════════════════════════════════
+- name: "PHASE 2 — Save Image sebagai tar.gz di Source Server"
+  hosts: source_server
+  become: true
+  gather_facts: false
+
+  vars:
+    docker_image: "registry.gitlab.com/nodefluxio/visionaire4:4.57.51-rc1"
+    image_tar_filename: "visionaire4_4.57.51-rc1.tar.gz"
+    image_save_dir: "/tmp/docker_images"
+
+  roles:
+    - 02_save_image
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 3a: Distribute ke server Cikeas (langsung dari Ansible control node)
+# ══════════════════════════════════════════════════════════════════════════════
+- name: "PHASE 3a — Distribute tar.gz ke Server Cikeas"
+  hosts: cikeas_servers
+  become: true
+  gather_facts: false
+  serial: 2
+  max_fail_percentage: 0
+
+  vars:
+    docker_image: "registry.gitlab.com/nodefluxio/visionaire4:4.57.51-rc1"
+    image_tar_filename: "visionaire4_4.57.51-rc1.tar.gz"
+    image_save_dir: "/tmp/docker_images"
+    image_dest_dir: "/data"
+
+  roles:
+    - 03_distribute_image
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 3b: Distribute ke server Bali (server01 Cikeas yang push ke Bali)
+# Laptop tidak bisa SSH ke Bali — semua operasi Bali via delegate_to server01
+# ══════════════════════════════════════════════════════════════════════════════
+- name: "PHASE 3b — Distribute tar.gz ke Server Bali (via server01 sebagai perantara)"
+  hosts: bali_servers
+  gather_facts: false
+  serial: 3           # server01 push ke 3 Bali server sekaligus
+
+  vars:
+    image_tar_filename: "visionaire4_4.57.51-rc1.tar.gz"
+    image_save_dir: "/tmp/docker_images"
+    image_dest_dir: "/tmp"    # pakai /tmp agar tidak perlu mkdir/chown (world-writable)
+
+  tasks:
+    - name: "Cek apakah tar sudah ada di {{ inventory_hostname }} (via server01)"
+      ansible.builtin.shell: |
+        sshpass -p "{{ ansible_ssh_pass }}" ssh \
+          -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+          {{ ansible_user }}@{{ ansible_host }} \
+          "test -f {{ image_dest_dir }}/{{ image_tar_filename }} && echo EXISTS || echo NOT_EXISTS"
+      delegate_to: server01
+      register: bali_file_check
+      changed_when: false
+
+    - name: "⏭️  Skip SCP — file sudah ada di {{ inventory_hostname }}"
+      ansible.builtin.debug:
+        msg: "File {{ image_tar_filename }} sudah ada di {{ inventory_hostname }} ({{ ansible_host }}), skip SCP."
+      when: "'EXISTS' in bali_file_check.stdout"
+
+    - name: "📤 SCP tar.gz: server01 → {{ inventory_hostname }} ({{ ansible_host }})"
+      ansible.builtin.shell: |
+        sshpass -p "{{ ansible_ssh_pass }}" scp \
+          -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+          {{ image_save_dir }}/{{ image_tar_filename }} \
+          {{ ansible_user }}@{{ ansible_host }}:{{ image_dest_dir }}/{{ image_tar_filename }}
+      delegate_to: server01
+      when: "'NOT_EXISTS' in bali_file_check.stdout"
+      async: 3600
+      poll: 15
+      register: bali_scp_result
+
+    - name: "✅ SCP selesai — {{ inventory_hostname }}"
+      ansible.builtin.debug:
+        msg: "SCP berhasil ke {{ inventory_hostname }} ({{ ansible_host }}) → {{ image_dest_dir }}/{{ image_tar_filename }}"
+      when: "'NOT_EXISTS' in bali_file_check.stdout and bali_scp_result.changed"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 4a: Load image di server Cikeas (langsung dari Ansible control node)
+# ══════════════════════════════════════════════════════════════════════════════
+- name: "PHASE 4a — Load Docker Image di Server Cikeas"
+  hosts: cikeas_servers
+  become: true
+  gather_facts: false
+  serial: 2
+  max_fail_percentage: 0
+
+  vars:
+    docker_image: "registry.gitlab.com/nodefluxio/visionaire4:4.57.51-rc1"
+    image_tar_filename: "visionaire4_4.57.51-rc1.tar.gz"
+    image_dest_dir: "/data"
+    cleanup_tar: true
+
+  roles:
+    - 04_load_image
+
+  post_tasks:
+    - name: "Final — Verifikasi image di {{ inventory_hostname }}"
+      ansible.builtin.command: >
+        docker images --format
+        "{% raw %}{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}{% endraw %}"
+      register: final_images
+      changed_when: false
+
+    - name: Print daftar image Cikeas
+      ansible.builtin.debug:
+        msg: "🐳 {{ inventory_hostname }} ({{ ansible_host }}) images:\n{{ final_images.stdout }}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 4b: Load image di server Bali (server01 Cikeas yang SSH ke Bali)
+# ══════════════════════════════════════════════════════════════════════════════
+- name: "PHASE 4b — Load Docker Image di Server Bali (via server01 sebagai perantara)"
+  hosts: bali_servers
+  gather_facts: false
+  serial: 3
+
+  vars:
+    docker_image: "registry.gitlab.com/nodefluxio/visionaire4:4.57.51-rc1"
+    image_tar_filename: "visionaire4_4.57.51-rc1.tar.gz"
+    image_dest_dir: "/tmp"    # sesuai Phase 3b, tar di /tmp
+    cleanup_tar: true          # wajib true — hapus tar dari /tmp setelah load
+
+  tasks:
+    - name: "Cek image sudah di-load di {{ inventory_hostname }} (via server01)"
+      ansible.builtin.shell: |
+        sshpass -p "{{ ansible_ssh_pass }}" ssh \
+          -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+          {{ ansible_user }}@{{ ansible_host }} \
+          "echo '{{ ansible_ssh_pass }}' | sudo -S docker image inspect {{ docker_image }} > /dev/null 2>&1 && echo LOADED || echo NOT_LOADED"
+      delegate_to: server01
+      register: bali_image_check
+      changed_when: false
+
+    - name: "⏭️  Image sudah ada di {{ inventory_hostname }}, skip load"
+      ansible.builtin.debug:
+        msg: "Image {{ docker_image }} sudah ada di {{ inventory_hostname }}, skip."
+      when: "'LOADED' in bali_image_check.stdout"
+
+    - name: "⏳ Docker load di {{ inventory_hostname }} (via server01)"
+      ansible.builtin.shell: |
+        sshpass -p "{{ ansible_ssh_pass }}" ssh \
+          -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+          {{ ansible_user }}@{{ ansible_host }} \
+          "echo '{{ ansible_ssh_pass }}' | sudo -S docker load -i {{ image_dest_dir }}/{{ image_tar_filename }}"
+      delegate_to: server01
+      when: "'NOT_LOADED' in bali_image_check.stdout"
+      async: 1800
+      poll: 15
+      register: bali_load_result
+
+    - name: "✅ Load selesai — {{ inventory_hostname }}"
+      ansible.builtin.debug:
+        msg: "🐳 {{ inventory_hostname }} ({{ ansible_host }}) | {{ bali_load_result.stdout_lines | default(['Image loaded']) | join(' ') }}"
+      when: "'NOT_LOADED' in bali_image_check.stdout"
+
+    - name: "🧹 Hapus tar.gz di {{ inventory_hostname }} setelah load"
+      ansible.builtin.shell: |
+        sshpass -p "{{ ansible_ssh_pass }}" ssh \
+          -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+          {{ ansible_user }}@{{ ansible_host }} \
+          "echo '{{ ansible_ssh_pass }}' | sudo -S rm -f {{ image_dest_dir }}/{{ image_tar_filename }}"
+      delegate_to: server01
+      when:
+        - "'NOT_LOADED' in bali_image_check.stdout"
+        - cleanup_tar | default(false) | bool

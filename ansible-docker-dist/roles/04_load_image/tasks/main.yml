@@ -1,0 +1,60 @@
+---
+# ─── Cek Docker di target server ─────────────────────────────────────────────
+- name: Cek Docker terinstall di target server
+  ansible.builtin.command: docker --version
+  register: docker_check
+  changed_when: false
+  failed_when: docker_check.rc != 0
+
+# ─── Cek image sudah di-load atau belum ──────────────────────────────────────
+- name: Cek apakah image sudah ada di Docker lokal
+  ansible.builtin.command: docker image inspect {{ docker_image }}
+  register: image_loaded
+  changed_when: false
+  failed_when: false
+
+- name: Image sudah ada, skip load
+  ansible.builtin.debug:
+    msg: "⏭️  {{ inventory_hostname }} ({{ ansible_host }}) | Image {{ docker_image }} sudah ada, skip load."
+  when: image_loaded.rc == 0
+
+# ─── Load image dari tar.gz ──────────────────────────────────────────────────
+- name: Load Docker image dari tar.gz
+  ansible.builtin.shell: |
+    echo "⏳ Loading image dari {{ image_dest_dir }}/{{ image_tar_filename }} ..."
+    docker load -i {{ image_dest_dir }}/{{ image_tar_filename }}
+  register: load_result
+  when: image_loaded.rc != 0
+  async: 1800      # timeout 30 menit
+  poll: 15         # cek progress tiap 15 detik
+
+- name: Tampilkan output load
+  ansible.builtin.debug:
+    msg: "{{ load_result.stdout_lines }}"
+  when: image_loaded.rc != 0 and load_result is defined
+
+# ─── Verifikasi image berhasil di-load ───────────────────────────────────────
+- name: Verifikasi image ada setelah load
+  ansible.builtin.command: docker image inspect {{ docker_image }}
+  register: verify_load
+  changed_when: false
+
+- name: Tampilkan info image yang berhasil di-load
+  ansible.builtin.command: >
+    docker images {{ docker_image }}
+    --format "{% raw %}{{.Repository}}:{{.Tag}} | Size: {{.Size}} | Created: {{.CreatedSince}}{% endraw %}"
+  register: image_info
+  changed_when: false
+
+- name: Laporan image berhasil di-load
+  ansible.builtin.debug:
+    msg: "✅ {{ inventory_hostname }} ({{ ansible_host }}) | {{ image_info.stdout }}"
+
+# ─── Opsional: hapus tar.gz setelah load sukses ───────────────────────────────
+- name: Hapus file tar.gz setelah load sukses (hemat disk)
+  ansible.builtin.file:
+    path: "{{ image_dest_dir }}/{{ image_tar_filename }}"
+    state: absent
+  when:
+    - verify_load.rc == 0
+    - cleanup_tar | default(false) | bool

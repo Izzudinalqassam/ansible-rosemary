@@ -1,0 +1,12 @@
+{
+  "data-root": "{{ docker_data_root }}"{{ "," if with_nvidia_runtime else "" }}
+{% if with_nvidia_runtime %}
+  "default-runtime": "nvidia",
+  "runtimes": {
+    "nvidia": {
+      "path": "nvidia-container-runtime",
+      "runtimeArgs": []
+    }
+  }
+{% endif %}
+}

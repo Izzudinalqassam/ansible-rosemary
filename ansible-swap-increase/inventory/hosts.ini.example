@@ -1,0 +1,16 @@
+# ============================================
+# Contoh inventory hosts.ini — ansible-swap-increase
+# Salin file ini menjadi hosts.ini lalu isi dengan IP server asli
+# ============================================
+
+[servers]
+server01  ansible_host=YOUR_SERVER_IP
+server02  ansible_host=YOUR_SERVER_IP
+# ... tambah server lainnya
+
+[servers:vars]
+ansible_user=your_ssh_user
+ansible_ssh_pass=YOUR_SSH_PASSWORD
+ansible_become=true
+ansible_become_pass=YOUR_SUDO_PASSWORD
+ansible_python_interpreter=/usr/bin/python3

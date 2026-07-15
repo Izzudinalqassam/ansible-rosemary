@@ -1,0 +1,11 @@
+# ============================================
+# Contoh inventory hosts.ini — visionaire-deps-ansible
+# Salin file ini menjadi hosts.ini lalu isi dengan IP server asli
+# ============================================
+
+[visionaire_servers]
+192.168.100.1
+192.168.100.2
+# Tambah IP server baru di sini
+
+# Credential diatur di group_vars/all.yml

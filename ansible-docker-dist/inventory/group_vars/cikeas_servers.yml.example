@@ -1,0 +1,7 @@
+# ============================================
+# Contoh group_vars/cikeas_servers.yml
+# Salin file ini tanpa .example lalu isi credential asli
+# ============================================
+
+ansible_ssh_pass: "YOUR_CIKEAS_SSH_PASSWORD"
+ansible_become_pass: "YOUR_CIKEAS_SUDO_PASSWORD"

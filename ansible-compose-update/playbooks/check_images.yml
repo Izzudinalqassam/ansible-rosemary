@@ -1,0 +1,19 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Playbook   : check_images.yml
+# Tujuan     : Cek image docker-compose yang sedang digunakan di semua server
+# Caller     : User (CLI)
+# Dependensi : roles/00_check_image
+# Side Effects: None (read-only, tidak mengubah file apapun)
+# ═══════════════════════════════════════════════════════════════════════════════
+- name: "🔍 Cek Image Compose yang Sedang Digunakan"
+  hosts: servers
+  become: true
+  gather_facts: false
+  serial: 13
+
+  vars:
+    compose_base_dir: "/data/compose"
+
+  roles:
+    - 00_check_image

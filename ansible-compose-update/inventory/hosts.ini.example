@@ -1,0 +1,17 @@
+# ============================================
+# Contoh inventory hosts.ini — ansible-compose-update
+# Salin file ini menjadi hosts.ini lalu isi dengan IP server asli
+# ============================================
+
+[servers]
+server01  ansible_host=YOUR_SERVER_IP  compose_nodes='["v4-node-1","v4-node-26"]'
+server02  ansible_host=YOUR_SERVER_IP  compose_nodes='["v4-node-2","v4-node-24"]'
+# Tambahkan server lainnya...
+
+[servers:vars]
+ansible_user=your_ssh_user
+ansible_ssh_pass=YOUR_SSH_PASSWORD
+ansible_become=true
+ansible_become_pass=YOUR_SUDO_PASSWORD
+ansible_python_interpreter=/usr/bin/python3
+compose_base_dir=/data/compose

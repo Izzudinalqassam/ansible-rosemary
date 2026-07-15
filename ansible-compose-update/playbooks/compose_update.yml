@@ -1,0 +1,37 @@
+---
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 1: Update image version di semua docker-compose.yaml
+# ══════════════════════════════════════════════════════════════════════════════
+- name: "PHASE 1 — Update Image Version di docker-compose.yaml"
+  hosts: servers
+  become: true
+  gather_facts: false
+  serial: 13
+  max_fail_percentage: 0
+  tags: phase1
+
+  vars:
+    new_image: "registry.gitlab.com/nodefluxio/visionaire4:4.57.51-rc1"   # ← GANTI VERSI DI SINI
+    compose_base_dir: "/data/compose"
+
+  roles:
+    - 01_update_image
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 2: Docker-compose down && up -d semua node per server
+# ══════════════════════════════════════════════════════════════════════════════
+- name: "PHASE 2 — Docker-compose Down & Up semua Node"
+  hosts: servers
+  become: true
+  gather_facts: false
+  serial: 5
+  max_fail_percentage: 0
+  tags: phase2
+
+  vars:
+    new_image: "registry.gitlab.com/nodefluxio/visionaire4:4.57.51-rc1"   # ← SAMA DENGAN PHASE 1
+    compose_base_dir: "/data/compose"
+
+  roles:
+    - 02_restart_compose

@@ -1,0 +1,40 @@
+---
+# =====================================================================
+# STEP 4: Install docker-compose (versi: {{ docker_compose_version }})
+# =====================================================================
+
+- name: Cek versi docker-compose yang sudah terpasang (kalau ada)
+  ansible.builtin.command: docker-compose --version
+  register: compose_check
+  changed_when: false
+  failed_when: false
+
+- name: Download docker-compose {{ docker_compose_version }}
+  ansible.builtin.get_url:
+    url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-{{ ansible_system }}-{{ ansible_userspace_architecture }}"
+    dest: /usr/local/bin/docker-compose
+    mode: "0755"
+  when: >
+    compose_check.rc != 0 or
+    (docker_compose_version not in compose_check.stdout)
+
+- name: Pastikan docker-compose bisa dieksekusi
+  ansible.builtin.file:
+    path: /usr/local/bin/docker-compose
+    mode: "0755"
+
+- name: Buat symlink ke /usr/bin (jaga-jaga kalau /usr/local/bin belum ke-PATH)
+  ansible.builtin.file:
+    src: /usr/local/bin/docker-compose
+    dest: /usr/bin/docker-compose
+    state: link
+    force: yes
+
+- name: Verifikasi docker-compose terpasang dengan benar
+  ansible.builtin.command: docker-compose --version
+  register: compose_final_check
+  changed_when: false
+
+- name: Tampilkan versi docker-compose terpasang
+  ansible.builtin.debug:
+    msg: "docker-compose terpasang: {{ compose_final_check.stdout }}"

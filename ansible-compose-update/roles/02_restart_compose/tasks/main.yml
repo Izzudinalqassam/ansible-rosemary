@@ -1,0 +1,99 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Role       : 02_restart_compose
+# Tujuan     : Restart (down + up) HANYA node yang image-nya diupdate
+# Caller     : playbooks/compose_update.yml (PHASE 2)
+# Dependensi : Fact 'nodes_to_update' dari role 01_update_image
+# Side Effects: docker-compose down & up pada node yang berubah
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── Parse node list (fallback jika PHASE 2 dijalankan sendiri) ──────────────
+- name: Set node list dari inventory (fallback)
+  ansible.builtin.set_fact:
+    node_list: "{{ compose_nodes.split(',') }}"
+  when: nodes_to_update is not defined
+
+# ─── Cek image untuk menentukan node yang perlu restart (jika phase2 standalone)
+- name: Cek image versi sekarang (standalone mode)
+  ansible.builtin.shell: |
+    grep -E '^\s*image:\s' {{ compose_base_dir }}/{{ item }}/docker-compose.yaml | head -1 | sed 's/^[[:space:]]*image:[[:space:]]*//'
+  register: current_image_standalone
+  changed_when: false
+  loop: "{{ node_list }}"
+  when: nodes_to_update is not defined
+
+- name: Tentukan nodes_to_update dari image check (standalone mode)
+  ansible.builtin.set_fact:
+    nodes_to_update: >-
+      {{ current_image_standalone.results
+         | selectattr('stdout', 'defined')
+         | rejectattr('stdout', 'search', new_image)
+         | map(attribute='item')
+         | list }}
+  when: nodes_to_update is not defined and current_image_standalone is defined
+
+# ─── Cek apakah ada yang perlu di-restart ────────────────────────────────────
+- name: "ℹ️  Tidak ada node yang perlu di-restart"
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} | Semua node sudah pakai image yang benar. Skip restart."
+  when: nodes_to_update | default([]) | length == 0
+
+# ─── DOWN hanya node yang diupdate ───────────────────────────────────────────
+- name: "Docker-compose DOWN → {{ item }}"
+  ansible.builtin.shell: |
+    cd {{ compose_base_dir }}/{{ item }}
+    docker-compose down
+    echo "⬇️  DOWN selesai: $(pwd)"
+  register: down_result
+  loop: "{{ nodes_to_update }}"
+  when: nodes_to_update | length > 0
+
+- name: Tampilkan output DOWN tiap node
+  ansible.builtin.debug:
+    msg: "{{ item.stdout_lines }}"
+  loop: "{{ down_result.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: nodes_to_update | length > 0
+
+# ─── Jeda sebentar setelah down ──────────────────────────────────────────────
+- name: Tunggu 5 detik sebelum UP
+  ansible.builtin.pause:
+    seconds: 5
+  when: nodes_to_update | length > 0
+
+# ─── UP -d hanya node yang diupdate ─────────────────────────────────────────
+- name: "Docker-compose UP -d → {{ item }}"
+  ansible.builtin.shell: |
+    cd {{ compose_base_dir }}/{{ item }}
+    docker-compose up -d
+    echo "⬆️  UP selesai: $(pwd)"
+  register: up_result
+  loop: "{{ nodes_to_update }}"
+  when: nodes_to_update | length > 0
+
+- name: Tampilkan output UP tiap node
+  ansible.builtin.debug:
+    msg: "{{ item.stdout_lines }}"
+  loop: "{{ up_result.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: nodes_to_update | length > 0
+
+# ─── Verifikasi container running ────────────────────────────────────────────
+- name: Tunggu 10 detik untuk container startup
+  ansible.builtin.pause:
+    seconds: 10
+  when: nodes_to_update | length > 0
+
+- name: Cek status container setelah UP
+  ansible.builtin.shell: |
+    docker ps --filter "name=visionaire4" --format "table {% raw %}{{.Names}}\t{{.Status}}\t{{.Ports}}{% endraw %}"
+  register: container_status
+  changed_when: false
+  when: nodes_to_update | length > 0
+
+- name: Tampilkan status container
+  ansible.builtin.debug:
+    msg: "🐳 {{ inventory_hostname }} ({{ ansible_host }}) containers:\n{{ container_status.stdout }}"
+  when: nodes_to_update | length > 0

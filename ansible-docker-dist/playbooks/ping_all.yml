@@ -1,0 +1,42 @@
+# Tujuan      : Test koneksi ke semua server (Cikeas + Bali)
+# Caller      : Manual: ansible-playbook playbooks/ping_all.yml
+# Dependensi  : inventory/hosts.ini, group_vars/
+# Main Tasks  : ping cikeas langsung, ping bali via server01
+# Side Effects: None (read-only)
+# Note        : Bali tidak bisa di-ping langsung dari laptop.
+#               Ping Bali dijalankan dari server01 via delegate_to.
+
+---
+- name: "🔵 Ping Server Cikeas (langsung dari control node)"
+  hosts: cikeas_servers
+  gather_facts: false
+  tasks:
+    - name: Ping cikeas
+      ansible.builtin.ping:
+
+    - name: Hasil ping Cikeas
+      ansible.builtin.debug:
+        msg: "✅ {{ inventory_hostname }} ({{ ansible_host }}) — CONNECTED"
+
+
+- name: "🟢 Ping Server Bali (via server01 Cikeas sebagai perantara)"
+  hosts: bali_servers
+  gather_facts: false
+  serial: 5
+
+  tasks:
+    - name: "Test koneksi ke {{ inventory_hostname }} ({{ ansible_host }}) dari server01"
+      ansible.builtin.shell: |
+        sshpass -p "{{ ansible_ssh_pass }}" ssh \
+          -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+          -o ConnectTimeout=10 \
+          {{ ansible_user }}@{{ ansible_host }} \
+          "echo pong"
+      delegate_to: server01
+      register: bali_ping
+      changed_when: false
+
+    - name: Hasil ping Bali
+      ansible.builtin.debug:
+        msg: "✅ {{ inventory_hostname }} ({{ ansible_host }}) — CONNECTED (via server01)"
+      when: "'pong' in bali_ping.stdout"

@@ -1,0 +1,39 @@
+---
+# ─── Cek Docker ──────────────────────────────────────────────────────────────
+- name: Cek Docker terinstall di source server
+  ansible.builtin.command: docker --version
+  register: docker_version
+  changed_when: false
+  failed_when: docker_version.rc != 0
+
+- name: Tampilkan versi Docker
+  ansible.builtin.debug:
+    msg: "🐳 {{ inventory_hostname }} | {{ docker_version.stdout }}"
+
+# ─── Cek image sudah ada atau belum ─────────────────────────────────────────
+- name: Cek apakah image sudah ada di source server
+  ansible.builtin.command: docker image inspect {{ docker_image }}
+  register: image_exists
+  changed_when: false
+  failed_when: false
+
+- name: Image sudah ada, skip pull
+  ansible.builtin.debug:
+    msg: "⏭️  Image {{ docker_image }} sudah ada di {{ inventory_hostname }}, skip pull."
+  when: image_exists.rc == 0
+
+# ─── Pull image ──────────────────────────────────────────────────────────────
+- name: Pull Docker image {{ docker_image }}
+  ansible.builtin.command: docker pull {{ docker_image }}
+  register: pull_result
+  when: image_exists.rc != 0
+
+- name: Tampilkan output pull
+  ansible.builtin.debug:
+    msg: "{{ pull_result.stdout_lines }}"
+  when: image_exists.rc != 0 and pull_result.rc == 0
+
+- name: Konfirmasi image berhasil di-pull
+  ansible.builtin.debug:
+    msg: "✅ Berhasil pull {{ docker_image }} di {{ inventory_hostname }}"
+  when: image_exists.rc != 0 and pull_result.rc == 0

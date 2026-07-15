@@ -1,0 +1,78 @@
+---
+# ─── Cek swap saat ini ───────────────────────────────────────────────────────
+- name: Get current total swap size (KB)
+  ansible.builtin.shell: |
+    free -k | awk '/^Swap:/ {print $2}'
+  register: current_swap_kb
+  changed_when: false
+
+- name: Convert swap to GB
+  ansible.builtin.set_fact:
+    current_swap_gb: "{{ (current_swap_kb.stdout | int / 1024 / 1024) | round(2) }}"
+
+- name: Show current swap size
+  ansible.builtin.debug:
+    msg: "🔍 {{ inventory_hostname }} ({{ ansible_host }}) | Swap sekarang: {{ current_swap_gb }} GB"
+
+# ─── Naikin swap kalau <= 8 GB ───────────────────────────────────────────────
+- name: Upgrade swap to 64 GB (hanya kalau swap <= 8 GB)
+  when: (current_swap_kb.stdout | int) <= (8 * 1024 * 1024)
+  block:
+
+    - name: Nonaktifkan semua swap aktif
+      ansible.builtin.command: swapoff -a
+      changed_when: true
+
+    - name: Hapus swapfile lama jika ada
+      ansible.builtin.file:
+        path: /swapfile
+        state: absent
+
+    - name: Buat swapfile baru 64 GB
+      ansible.builtin.command: fallocate -l 64G /swapfile
+      args:
+        creates: /swapfile
+
+    # Fallback kalau filesystem tidak support fallocate (XFS, dll)
+    # - name: Buat swapfile baru 64 GB (dd fallback)
+    #   ansible.builtin.command: dd if=/dev/zero of=/swapfile bs=1G count=64
+    #   args:
+    #     creates: /swapfile
+
+    - name: Set permission swapfile (600)
+      ansible.builtin.file:
+        path: /swapfile
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Format sebagai swap
+      ansible.builtin.command: mkswap /swapfile
+      changed_when: true
+
+    - name: Aktifkan swapfile
+      ansible.builtin.command: swapon /swapfile
+      changed_when: true
+
+    - name: Pastikan swap persist di /etc/fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^/swapfile'
+        line: '/swapfile none swap sw 0 0'
+        state: present
+        backup: yes
+
+    - name: Verifikasi swap baru
+      ansible.builtin.shell: free -h | awk '/^Swap:/ {print $2}'
+      register: new_swap
+      changed_when: false
+
+    - name: Laporan swap berhasil diupgrade
+      ansible.builtin.debug:
+        msg: "✅ {{ inventory_hostname }} ({{ ansible_host }}) | Swap berhasil dinaikan ke: {{ new_swap.stdout }}"
+
+# ─── Laporan kalau swap sudah cukup ──────────────────────────────────────────
+- name: Laporan swap sudah di atas 8 GB
+  when: (current_swap_kb.stdout | int) > (8 * 1024 * 1024)
+  ansible.builtin.debug:
+    msg: "⏭️  {{ inventory_hostname }} ({{ ansible_host }}) | Swap {{ current_swap_gb }} GB — tidak perlu diubah."

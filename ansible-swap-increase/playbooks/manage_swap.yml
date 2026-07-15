@@ -1,0 +1,23 @@
+---
+- name: Cek dan Upgrade Swap Memory (threshold 8 GB → target 64 GB)
+  hosts: servers
+  become: true
+  gather_facts: true
+
+  vars:
+    swap_threshold_gb: 8
+    swap_target_gb: 64
+    swapfile_path: /swapfile
+
+  roles:
+    - swap_manager
+
+  post_tasks:
+    - name: Ringkasan memory semua server
+      ansible.builtin.shell: free -h
+      register: mem_summary
+      changed_when: false
+
+    - name: Print ringkasan
+      ansible.builtin.debug:
+        msg: "{{ mem_summary.stdout_lines }}"

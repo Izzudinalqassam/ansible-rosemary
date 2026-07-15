@@ -1,0 +1,83 @@
+---
+# =====================================================================
+# STEP 3: Install nvidia-docker2 (skip otomatis kalau server tidak ada GPU)
+# =====================================================================
+
+- name: Cek ulang apakah GPU NVIDIA ada di server ini
+  ansible.builtin.shell: "lspci | grep -i nvidia || true"
+  register: gpu_check_nd
+  changed_when: false
+
+- name: Ambil os-release ID + VERSION_ID untuk repo nvidia-docker
+  ansible.builtin.shell: ". /etc/os-release; echo ${ID}${VERSION_ID}"
+  register: distribution_id
+  changed_when: false
+  when: gpu_check_nd.stdout != ""
+
+- name: Download & pasang GPG key nvidia-docker
+  ansible.builtin.shell: |
+    curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | apt-key add -
+  args:
+    warn: false
+  when: gpu_check_nd.stdout != ""
+
+- name: Tambahkan repository list nvidia-docker
+  ansible.builtin.get_url:
+    url: "https://nvidia.github.io/nvidia-docker/{{ distribution_id.stdout }}/nvidia-docker.list"
+    dest: /etc/apt/sources.list.d/nvidia-docker.list
+    mode: "0644"
+  when: gpu_check_nd.stdout != ""
+
+- name: Update apt cache setelah tambah repo nvidia-docker
+  ansible.builtin.apt:
+    update_cache: yes
+  when: gpu_check_nd.stdout != ""
+
+- name: Install nvidia-docker2
+  ansible.builtin.apt:
+    name: nvidia-docker2
+    state: present
+  when: gpu_check_nd.stdout != ""
+
+- name: Pastikan docker_data_root sudah ada nilainya (jaga-jaga kalau role docker belum jalan di play ini)
+  ansible.builtin.stat:
+    path: /data
+  register: data_folder_check_nd
+  when: docker_data_root is not defined
+
+- name: Set docker_data_root fallback kalau belum ke-set
+  ansible.builtin.set_fact:
+    docker_data_root: "{{ docker_root_if_data_exists if data_folder_check_nd.stat.exists else docker_root_if_no_data }}"
+  when: docker_data_root is not defined
+
+- name: Template ulang daemon.json final (data-root + runtime nvidia digabung)
+  ansible.builtin.template:
+    src: "{{ role_path }}/../docker/templates/daemon.json.j2"
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+    backup: yes
+  vars:
+    with_nvidia_runtime: true
+  when: gpu_check_nd.stdout != ""
+
+- name: Restart docker daemon supaya runtime nvidia aktif
+  ansible.builtin.service:
+    name: docker
+    state: restarted
+  when: gpu_check_nd.stdout != ""
+
+- name: Test GPU bisa diakses lewat docker (nvidia-smi via container)
+  ansible.builtin.command: docker run --rm --gpus all nvidia/cuda:11.6.2-base-ubuntu20.04 nvidia-smi
+  register: nvidia_smi_test
+  changed_when: false
+  ignore_errors: true
+  when: gpu_check_nd.stdout != ""
+
+- name: Tampilkan hasil test GPU di docker
+  ansible.builtin.debug:
+    msg: "{{ 'GPU via docker OK - nvidia-smi berhasil.' if (nvidia_smi_test is defined and nvidia_smi_test.rc == 0) else 'Info: skip test GPU (tidak ada GPU) atau perlu dicek manual.' }}"
+
+- name: Info kalau server ini tidak ada GPU (nvidia-docker2 di-skip)
+  ansible.builtin.debug:
+    msg: "Server ini tidak terdeteksi GPU NVIDIA, instalasi nvidia-docker2 di-skip."
+  when: gpu_check_nd.stdout == ""

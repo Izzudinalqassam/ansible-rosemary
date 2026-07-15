@@ -1,0 +1,11 @@
+# Tujuan: Mengabaikan file sensitif dan temporary Ansible dari tracking Git.
+# Caller: Git VCS
+# Dependensi: None
+# Main Functions: None
+# Side Effects: None
+
+# Ignore actual inventory containing passwords
+inventory/hosts.ini
+
+# Ignore Ansible retry files
+*.retry

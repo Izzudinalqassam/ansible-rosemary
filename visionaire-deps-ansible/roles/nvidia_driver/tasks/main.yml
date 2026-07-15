@@ -1,0 +1,59 @@
+---
+# =====================================================================
+# STEP 1: Install NVIDIA Driver (versi recommended, otomatis dipilihkan)
+# =====================================================================
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Cek apakah GPU NVIDIA terpasang di server
+  ansible.builtin.shell: "lspci | grep -i nvidia || true"
+  register: gpu_check
+  changed_when: false
+
+- name: Tampilkan hasil deteksi GPU
+  ansible.builtin.debug:
+    msg: "{{ 'GPU NVIDIA terdeteksi, lanjut install driver.' if gpu_check.stdout != '' else 'Tidak ada GPU NVIDIA terdeteksi, skip install driver.' }}"
+
+- name: Install ubuntu-drivers-common (tool untuk auto-detect driver terbaik)
+  ansible.builtin.apt:
+    name: ubuntu-drivers-common
+    state: present
+  when: gpu_check.stdout != ""
+
+- name: Cek driver nvidia yang sedang aktif (kalau ada)
+  ansible.builtin.shell: "nvidia-smi --query-gpu=driver_version --format=csv,noheader || true"
+  register: current_driver
+  changed_when: false
+  when: gpu_check.stdout != ""
+
+- name: Install NVIDIA driver versi recommended (otomatis via ubuntu-drivers autoinstall)
+  ansible.builtin.shell: "ubuntu-drivers autoinstall"
+  register: driver_install
+  changed_when: "'Installing' in driver_install.stdout or 'installing' in driver_install.stdout"
+  when:
+    - gpu_check.stdout != ""
+    - current_driver.stdout is defined
+    - current_driver.stdout == ""
+
+- name: Cek apakah server perlu reboot (misal karena driver baru terpasang)
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: reboot_required_file
+
+- name: Reboot server supaya driver NVIDIA aktif
+  ansible.builtin.reboot:
+    msg: "Reboot otomatis oleh Ansible - aktivasi NVIDIA driver"
+    reboot_timeout: "{{ reboot_wait_timeout }}"
+    connect_timeout: 20
+    pre_reboot_delay: 5
+    post_reboot_delay: 15
+    test_command: whoami
+  when: reboot_required_file.stat.exists
+
+- name: Info kalau tidak perlu reboot
+  ansible.builtin.debug:
+    msg: "Server tidak perlu reboot, lanjut ke tahap berikutnya."
+  when: not reboot_required_file.stat.exists

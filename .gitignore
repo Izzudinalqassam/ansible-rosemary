@@ -1,0 +1,31 @@
+# ============================================
+# .gitignore — ansible-rosemary
+# Tujuan: Mengabaikan file sensitif, cache, dan temporary dari Git
+# ============================================
+
+# --- File Sensitif (credential, password, inventory dengan IP asli) ---
+**/inventory/hosts.ini
+**/inventory/group_vars/*.yml
+**/group_vars/all.yml
+
+# --- Ansible Runtime ---
+*.retry
+*.log
+
+# --- Zone Identifier (Windows/WSL artifact) ---
+*:Zone.Identifier
+
+# --- OS & Editor ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/

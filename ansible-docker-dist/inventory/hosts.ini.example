@@ -1,0 +1,25 @@
+# ============================================
+# Contoh inventory hosts.ini — ansible-docker-dist
+# Salin file ini menjadi hosts.ini lalu isi dengan IP server asli
+# ============================================
+
+[source_server]
+server01  ansible_host=YOUR_SOURCE_SERVER_IP
+
+[cikeas_servers]
+server01  ansible_host=YOUR_SERVER_IP
+server02  ansible_host=YOUR_SERVER_IP
+# ... tambah server lainnya
+
+[bali_servers]
+bali01  ansible_host=YOUR_BALI_SERVER_IP
+bali02  ansible_host=YOUR_BALI_SERVER_IP
+# ... tambah server lainnya
+
+[target_servers:children]
+cikeas_servers
+bali_servers
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_user=your_ssh_user

@@ -1,0 +1,116 @@
+---
+# =====================================================================
+# STEP 2: Install Docker CE + atur docker root dir (/data atau /root)
+# =====================================================================
+
+- name: Update apt package index
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install dependencies untuk Docker repo
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg-agent
+      - software-properties-common
+    state: present
+
+- name: Cek apakah docker sudah pernah ke-install
+  ansible.builtin.command: which docker
+  register: docker_installed_check
+  changed_when: false
+  failed_when: false
+
+- name: Buat direktori keyrings untuk GPG key docker
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Download & pasang Docker official GPG key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+    force: false
+
+- name: Tambahkan repository docker-ce (stable)
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+    filename: docker
+    update_cache: yes
+
+- name: Install Docker Engine (docker-ce, docker-ce-cli, containerd.io)
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+    state: present
+    update_cache: yes
+
+- name: Stop docker sementara sebelum atur data-root (biar data tidak kesimpan di lokasi default dulu)
+  ansible.builtin.service:
+    name: docker
+    state: stopped
+  when: docker_installed_check.rc != 0
+
+- name: Cek apakah folder /data ada di server ini
+  ansible.builtin.stat:
+    path: /data
+  register: data_folder_check
+
+- name: Set docker_data_root sesuai kondisi server (/data kalau ada, /root kalau tidak)
+  ansible.builtin.set_fact:
+    docker_data_root: "{{ docker_root_if_data_exists if data_folder_check.stat.exists else docker_root_if_no_data }}"
+
+- name: Tampilkan lokasi docker data-root yang dipakai
+  ansible.builtin.debug:
+    msg: "Docker data-root untuk server ini: {{ docker_data_root }}"
+
+- name: Buat direktori untuk docker data-root
+  ansible.builtin.file:
+    path: "{{ docker_data_root }}"
+    state: directory
+    mode: "0711"
+
+- name: Buat direktori /etc/docker
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    mode: "0755"
+
+- name: Template awal daemon.json (data-root saja, runtime nvidia menyusul)
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+    backup: yes
+  vars:
+    with_nvidia_runtime: false
+
+- name: Start & enable docker service
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: Tambahkan user "{{ ansible_user }}" ke group docker (biar bisa jalanin docker tanpa sudo)
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: yes
+
+- name: Test docker dengan hello-world
+  ansible.builtin.command: docker run --rm hello-world
+  register: hello_world_test
+  changed_when: false
+  ignore_errors: true
+
+- name: Tampilkan hasil test hello-world
+  ansible.builtin.debug:
+    msg: "{{ 'Docker OK - hello-world berhasil jalan.' if hello_world_test.rc == 0 else 'PERINGATAN: docker hello-world gagal, cek manual: ' + (hello_world_test.stderr | default('')) }}"

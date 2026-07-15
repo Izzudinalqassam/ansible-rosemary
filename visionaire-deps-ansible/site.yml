@@ -1,0 +1,63 @@
+---
+# =====================================================================
+# PLAYBOOK UTAMA - Install semua dependencies VisionAIre
+# Jalankan dengan: ansible-playbook site.yml
+#
+# Urutan proses (otomatis, tidak perlu campur tangan manual):
+#   1. Install NVIDIA driver (versi recommended) -> reboot kalau perlu
+#   2. Install Docker CE + atur data-root (/data atau /root)
+#   3. Install nvidia-docker2 + aktifkan GPU runtime di docker
+#   4. Install docker-compose (versi sesuai dokumen dependensi)
+# =====================================================================
+
+# --- PLAY 0: Bootstrap ---
+# Jaga-jaga untuk server yang benar-benar baru/fresh install dan belum ada
+# python3 (tanpa python3, modul ansible lain tidak akan jalan).
+- name: "[0/4] Bootstrap Python (untuk server fresh install)"
+  hosts: visionaire_servers
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Cek apakah python3 sudah ada
+      ansible.builtin.raw: which python3 || echo "NOT_FOUND"
+      register: python3_check
+      changed_when: false
+
+    - name: Install python3 kalau belum ada (pakai raw, tanpa perlu python dulu)
+      ansible.builtin.raw: apt-get update && apt-get install -y python3 python3-apt
+      when: "'NOT_FOUND' in python3_check.stdout"
+
+# --- PLAY 1: NVIDIA Driver + Reboot ---
+# Dipisah jadi play sendiri karena butuh reboot dulu supaya kernel module
+# nvidia benar-benar aktif, sebelum lanjut install nvidia-docker2.
+- name: "[1/4] Install NVIDIA Driver & Reboot"
+  hosts: visionaire_servers
+  become: true
+  gather_facts: true
+  roles:
+    - nvidia_driver
+
+# --- PLAY 2: Docker, nvidia-docker2, docker-compose ---
+- name: "[2/4 - 4/4] Install Docker Stack (docker-ce, nvidia-docker2, docker-compose)"
+  hosts: visionaire_servers
+  become: true
+  gather_facts: true
+  roles:
+    - docker
+    - nvidia_docker
+    - docker_compose
+
+# --- PLAY 3: Ringkasan hasil instalasi ---
+- name: "Ringkasan Instalasi"
+  hosts: visionaire_servers
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Tampilkan ringkasan per server
+      ansible.builtin.debug:
+        msg:
+          - "===================================================="
+          - "Server        : {{ inventory_hostname }}"
+          - "Docker root   : {{ docker_data_root | default('tidak diketahui') }}"
+          - "Status        : SELESAI - siap dipakai untuk deploy VisionAIre"
+          - "===================================================="

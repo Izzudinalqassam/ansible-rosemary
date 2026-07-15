@@ -1,0 +1,8 @@
+# ============================================
+# Contoh group_vars/bali_servers.yml
+# Salin file ini tanpa .example lalu isi credential asli
+# ============================================
+
+ansible_ssh_pass: "YOUR_BALI_SSH_PASSWORD"
+ansible_become_pass: "YOUR_BALI_SUDO_PASSWORD"
+ansible_user: your_ssh_user

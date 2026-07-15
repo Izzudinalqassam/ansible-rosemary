@@ -1,0 +1,53 @@
+---
+# ─── Pastikan direktori temp ada ─────────────────────────────────────────────
+- name: Buat direktori temp untuk menyimpan image tar
+  ansible.builtin.file:
+    path: "{{ image_save_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+# ─── Cek apakah tar.gz sudah ada ─────────────────────────────────────────────
+- name: Cek apakah file tar.gz sudah ada
+  ansible.builtin.stat:
+    path: "{{ image_save_dir }}/{{ image_tar_filename }}"
+  register: tar_file_stat
+
+- name: File tar.gz sudah ada, skip save
+  ansible.builtin.debug:
+    msg: "⏭️  File {{ image_tar_filename }} sudah ada di {{ image_save_dir }}, skip save."
+  when: tar_file_stat.stat.exists
+
+# ─── Save image ke tar lalu compress ke .gz ──────────────────────────────────
+- name: Save Docker image ke tar (ini butuh waktu, image besar)
+  ansible.builtin.shell: |
+    echo "🗜️  Menyimpan image {{ docker_image }} ..."
+    docker save {{ docker_image }} | gzip > {{ image_save_dir }}/{{ image_tar_filename }}
+    echo "✅ Selesai: $(du -sh {{ image_save_dir }}/{{ image_tar_filename }} | cut -f1)"
+  register: save_result
+  when: not tar_file_stat.stat.exists
+  async: 1800      # timeout 30 menit
+  poll: 15         # cek progress tiap 15 detik
+
+- name: Tampilkan output save
+  ansible.builtin.debug:
+    msg: "{{ save_result.stdout_lines }}"
+  when: not tar_file_stat.stat.exists and save_result is defined
+
+# ─── Verifikasi file tar.gz terbuat ──────────────────────────────────────────
+- name: Cek ukuran file tar.gz yang tersimpan
+  ansible.builtin.stat:
+    path: "{{ image_save_dir }}/{{ image_tar_filename }}"
+  register: tar_file_final
+
+- name: Tampilkan info file tar.gz
+  ansible.builtin.debug:
+    msg: >
+      📦 File tersimpan: {{ image_save_dir }}/{{ image_tar_filename }}
+      | Ukuran: {{ (tar_file_final.stat.size / 1024 / 1024 / 1024) | round(2) }} GB
+
+- name: Gagal jika file tar.gz tidak terbuat
+  ansible.builtin.fail:
+    msg: "❌ File tar.gz tidak ditemukan setelah proses save! Cek disk space di source server."
+  when: not tar_file_final.stat.exists

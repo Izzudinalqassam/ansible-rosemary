@@ -1,0 +1,54 @@
+---
+# ─── Pastikan direktori /data ada di target server ───────────────────────────
+- name: Buat direktori /data di target server jika belum ada
+  ansible.builtin.file:
+    path: "{{ image_dest_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+# ─── Cek apakah file sudah ada di target ─────────────────────────────────────
+- name: Cek apakah tar.gz sudah ada di target server
+  ansible.builtin.stat:
+    path: "{{ image_dest_dir }}/{{ image_tar_filename }}"
+  register: dest_file_stat
+
+- name: File sudah ada di target, skip SCP
+  ansible.builtin.debug:
+    msg: "⏭️  {{ inventory_hostname }} ({{ ansible_host }}) | File sudah ada di {{ image_dest_dir }}, skip SCP."
+  when: dest_file_stat.stat.exists
+
+# ─── SCP tar.gz dari source ke target server ─────────────────────────────────
+- name: SCP tar.gz dari source server (10.200.168.41) ke {{ inventory_hostname }}
+  ansible.builtin.shell: |
+    sshpass -p "{{ ansible_ssh_pass }}" scp -o StrictHostKeyChecking=no \
+      {{ ansible_user }}@10.200.168.41:{{ image_save_dir }}/{{ image_tar_filename }} \
+      {{ image_dest_dir }}/{{ image_tar_filename }}
+  when: not dest_file_stat.stat.exists
+  register: scp_result
+  async: 3600
+  poll: 15
+
+- name: Laporan SCP berhasil
+  ansible.builtin.debug:
+    msg: "📤 {{ inventory_hostname }} ({{ ansible_host }}) | SCP selesai → {{ image_dest_dir }}/{{ image_tar_filename }}"
+  when: not dest_file_stat.stat.exists and scp_result.changed
+
+# ─── Verifikasi file ada di target ───────────────────────────────────────────
+- name: Verifikasi file tar.gz di target server
+  ansible.builtin.stat:
+    path: "{{ image_dest_dir }}/{{ image_tar_filename }}"
+  register: verify_dest
+
+- name: Tampilkan ukuran file di target
+  ansible.builtin.debug:
+    msg: >
+      ✅ {{ inventory_hostname }} | File OK: {{ image_dest_dir }}/{{ image_tar_filename }}
+      | Ukuran: {{ (verify_dest.stat.size / 1024 / 1024 / 1024) | round(2) }} GB
+  when: verify_dest.stat.exists
+
+- name: Gagal jika file tidak ada di target
+  ansible.builtin.fail:
+    msg: "❌ File tidak ditemukan di {{ inventory_hostname }}:{{ image_dest_dir }}/{{ image_tar_filename }}"
+  when: not verify_dest.stat.exists
