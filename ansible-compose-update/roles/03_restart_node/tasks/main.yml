@@ -1,0 +1,75 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Role       : 03_restart_node
+# Tujuan     : Restart (down + up) SEMUA container node di server
+# Caller     : playbooks/restart_nodes.yml
+# Dependensi : compose_nodes (dari inventory), compose_base_dir
+# Side Effects: docker-compose down & up pada semua node di server
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── Parse node list dari inventory ──────────────────────────────────────────
+- name: Parse daftar node dari inventory
+  ansible.builtin.set_fact:
+    node_list: "{{ compose_nodes.split(',') }}"
+
+- name: "📋 Node yang akan di-restart di {{ inventory_hostname }}"
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} ({{ ansible_host }}) → {{ node_list | join(', ') }}"
+
+# ─── DOWN semua node ─────────────────────────────────────────────────────────
+- name: "⬇️  Docker-compose DOWN → {{ item }}"
+  ansible.builtin.shell: |
+    cd {{ compose_base_dir }}/{{ item }}
+    docker-compose down
+    echo "⬇️  DOWN selesai: $(pwd)"
+  register: down_result
+  loop: "{{ node_list }}"
+
+- name: Tampilkan output DOWN tiap node
+  ansible.builtin.debug:
+    msg: "{{ item.stdout_lines }}"
+  loop: "{{ down_result.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# ─── Jeda sebelum UP ────────────────────────────────────────────────────────
+- name: Tunggu 5 detik sebelum UP
+  ansible.builtin.pause:
+    seconds: 5
+
+# ─── UP -d semua node ────────────────────────────────────────────────────────
+- name: "⬆️  Docker-compose UP -d → {{ item }}"
+  ansible.builtin.shell: |
+    cd {{ compose_base_dir }}/{{ item }}
+    docker-compose up -d
+    echo "⬆️  UP selesai: $(pwd)"
+  register: up_result
+  loop: "{{ node_list }}"
+
+- name: Tampilkan output UP tiap node
+  ansible.builtin.debug:
+    msg: "{{ item.stdout_lines }}"
+  loop: "{{ up_result.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# ─── Verifikasi container running ────────────────────────────────────────────
+- name: Tunggu 10 detik untuk container startup
+  ansible.builtin.pause:
+    seconds: 10
+
+- name: Cek status container setelah UP
+  ansible.builtin.shell: |
+    docker ps --filter "name=visionaire4" --format "table {% raw %}{{.Names}}\t{{.Status}}\t{{.Ports}}{% endraw %}"
+  register: container_status
+  changed_when: false
+
+- name: "🐳 Status container {{ inventory_hostname }}"
+  ansible.builtin.debug:
+    msg: "🐳 {{ inventory_hostname }} ({{ ansible_host }}) containers:\n{{ container_status.stdout }}"
+
+# ─── Jeda 2 menit sebelum lanjut ke server berikutnya ────────────────────────
+- name: "⏳ Jeda 2 menit sebelum lanjut ke server berikutnya"
+  ansible.builtin.pause:
+    seconds: 120
+    prompt: "⏳ Menunggu 2 menit sebelum lanjut restart node di server berikutnya..."

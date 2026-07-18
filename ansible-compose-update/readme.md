@@ -24,13 +24,22 @@ Untuk setiap server:
 │   ├── Verifikasi image sudah terganti
 │   └── Simpan daftar node yang diupdate → PHASE 2
 │
-└── PHASE 2 — Restart Compose (hanya node yang berubah)
-    ├── Tidak ada node berubah → SKIP seluruh restart
-    ├── docker-compose down  (hanya node yang diupdate)
+├── PHASE 2 — Restart Compose (hanya node yang berubah)
+│   ├── Tidak ada node berubah → SKIP seluruh restart
+│   ├── docker-compose down  (hanya node yang diupdate)
+│   ├── Jeda 5 detik
+│   ├── docker-compose up -d (hanya node yang diupdate)
+│   ├── Tunggu 10 detik startup
+│   └── Cek status container
+│
+└── RESTART NODE — Rolling restart (playbook terpisah)
+    ├── Serial: 1 server at a time
+    ├── docker-compose down  (SEMUA node di server)
     ├── Jeda 5 detik
-    ├── docker-compose up -d (hanya node yang diupdate)
+    ├── docker-compose up -d (SEMUA node di server)
     ├── Tunggu 10 detik startup
-    └── Cek status container
+    ├── Cek status container
+    └── ⏳ Jeda 2 menit sebelum lanjut ke server berikutnya
 ```
 
 ---
@@ -44,13 +53,16 @@ ansible-compose-update/
 │   └── hosts.ini
 ├── playbooks/
 │   ├── check_images.yml        ← Cek image (read-only, aman)
-│   └── compose_update.yml      ← Update + restart (smart skip)
+│   ├── compose_update.yml      ← Update + restart (smart skip)
+│   └── restart_nodes.yml       ← Rolling restart 1 server/waktu, jeda 2 menit
 └── roles/
     ├── 00_check_image/          ← Role: cek image saat ini
     │   └── tasks/main.yml
     ├── 01_update_image/         ← Role: cek & ganti image (skip jika sama)
     │   └── tasks/main.yml
-    └── 02_restart_compose/      ← Role: restart (hanya node yang berubah)
+    ├── 02_restart_compose/      ← Role: restart (hanya node yang berubah)
+    │   └── tasks/main.yml
+    └── 03_restart_node/         ← Role: restart semua node per server
         └── tasks/main.yml
 ```
 
@@ -147,6 +159,25 @@ ansible-playbook playbooks/compose_update.yml --tags phase2
 ```
 
 > 📌 Jika `--tags phase2` dijalankan sendiri tanpa PHASE 1, role akan **otomatis cek image** dan hanya restart node yang berbeda dari `new_image`.
+
+---
+
+### 🔁 Rolling Restart Node (1 server at a time, jeda 2 menit)
+
+Restart semua container node tanpa mengubah image version. Berguna saat ingin restart bersih tanpa update.
+
+```bash
+# Restart semua server (1 per 1, jeda 2 menit antar server)
+ansible-playbook playbooks/restart_nodes.yml
+
+# Restart server tertentu saja
+ansible-playbook playbooks/restart_nodes.yml --limit server01,server05
+
+# Dry-run (cek dulu tanpa eksekusi)
+ansible-playbook playbooks/restart_nodes.yml --check
+```
+
+> ⏳ Setiap server akan di-restart satu per satu. Setelah semua node di server selesai restart dan verified running, playbook akan **jeda 2 menit** sebelum lanjut ke server berikutnya.
 
 ---
 

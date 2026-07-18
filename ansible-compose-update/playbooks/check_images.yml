@@ -16,4 +16,4 @@
     compose_base_dir: "/data/compose"
 
   roles:
-    - 00_check_image
+    - roles/00_check_image

@@ -1,0 +1,32 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Playbook    : restart_nodes.yml
+# Tujuan      : Restart semua container node, 1 server at a time, jeda 2 menit
+#               antar server setelah semua node di server tersebut selesai restart
+# Caller      : User (CLI)
+# Dependensi  : roles/03_restart_node
+# Side Effects: docker-compose down & up pada semua node di setiap server
+#
+# Cara pakai:
+#   Restart SEMUA server (1 per 1, jeda 2 menit):
+#     ansible-playbook playbooks/restart_nodes.yml
+#
+#   Restart server tertentu saja:
+#     ansible-playbook playbooks/restart_nodes.yml --limit server01,server05
+#
+#   Dry-run (cek dulu tanpa eksekusi):
+#     ansible-playbook playbooks/restart_nodes.yml --check
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: "🔄 Restart Node — 1 Server at a Time (Jeda 2 Menit)"
+  hosts: servers
+  become: true
+  gather_facts: false
+  serial: 1
+  max_fail_percentage: 0
+
+  vars:
+    compose_base_dir: "/data/compose"
+
+  roles:
+    - 03_restart_node
