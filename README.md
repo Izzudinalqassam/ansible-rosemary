@@ -137,11 +137,15 @@ ansible-rosemary/
 │   │   └── hosts.ini.example
 │   ├── playbooks/
 │   │   ├── check_images.yml           ← Cek image (read-only, aman)
-│   │   └── compose_update.yml         ← Update + restart (smart skip)
+│   │   ├── compose_update.yml         ← Update + restart (smart skip)
+│   │   ├── restart_nodes.yml          ← Rolling restart 1 server/waktu
+│   │   └── scheduled_restart.yml      ← Toggle --scheduled-restart
 │   └── roles/
 │       ├── 00_check_image/            ← Cek image saat ini
 │       ├── 01_update_image/           ← Replace image (skip jika sama)
-│       └── 02_restart_compose/        ← Restart (hanya node berubah)
+│       ├── 02_restart_compose/        ← Restart (hanya node berubah)
+│       ├── 03_restart_node/           ← Restart semua node per server
+│       └── 04_scheduled_restart/      ← Toggle --scheduled-restart
 │
 └── ansible-swap-increase/             ← [4] Upgrade swap memory
     ├── readme.md
@@ -217,6 +221,28 @@ ansible-playbook playbooks/check_images.yml
 # Update & restart
 ansible-playbook playbooks/compose_update.yml \
   -e "new_image=registry.gitlab.com/nodefluxio/visionaire4:4.58.0"
+
+# Rolling restart tanpa update image (1 server, jeda 2 menit)
+ansible-playbook playbooks/restart_nodes.yml
+ansible-playbook playbooks/restart_nodes.yml --limit server01,server05
+```
+
+#### ⏰ Toggle `--scheduled-restart`
+
+Tambah/hapus flag `--scheduled-restart` di command docker-compose. Waktu otomatis staggered per node (selang 5 menit berdasarkan nomor node: node-1 = 02:00, node-2 = 02:05, dst). Setelah edit, rolling restart 1 server per waktu dengan jeda 2 menit per node.
+
+```bash
+# Enable (tambah/uncomment) di semua server
+ansible-playbook playbooks/scheduled_restart.yml
+
+# Disable (comment out) di semua server
+ansible-playbook playbooks/scheduled_restart.yml -e "scheduled_restart_action=disable"
+
+# Target server tertentu
+ansible-playbook playbooks/scheduled_restart.yml --limit server01,server05
+
+# Hanya edit tanpa restart
+ansible-playbook playbooks/scheduled_restart.yml --tags phase1
 ```
 
 ---

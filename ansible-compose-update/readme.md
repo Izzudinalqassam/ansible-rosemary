@@ -32,14 +32,21 @@ Untuk setiap server:
 │   ├── Tunggu 10 detik startup
 │   └── Cek status container
 │
-└── RESTART NODE — Rolling restart (playbook terpisah)
-    ├── Serial: 1 server at a time
-    ├── docker-compose down  (SEMUA node di server)
-    ├── Jeda 5 detik
-    ├── docker-compose up -d (SEMUA node di server)
-    ├── Tunggu 10 detik startup
-    ├── Cek status container
-    └── ⏳ Jeda 2 menit sebelum lanjut ke server berikutnya
+├── RESTART NODE — Rolling restart (playbook terpisah)
+│   ├── Serial: 1 server at a time
+│   ├── docker-compose down  (SEMUA node di server)
+│   ├── Jeda 5 detik
+│   ├── docker-compose up -d (SEMUA node di server)
+│   ├── Tunggu 10 detik startup
+│   ├── Cek status container
+│   └── ⏳ Jeda 2 menit sebelum lanjut ke server berikutnya
+│
+└── SCHEDULED RESTART — Toggle --scheduled-restart (playbook terpisah)
+    ├── Cek status saat ini (active / commented / absent)
+    ├── Enable  → Tambah atau uncomment --scheduled-restart
+    ├── Disable → Comment out --scheduled-restart
+    ├── Backup .bak sebelum edit
+    └── Verifikasi hasil
 ```
 
 ---
@@ -54,7 +61,8 @@ ansible-compose-update/
 ├── playbooks/
 │   ├── check_images.yml        ← Cek image (read-only, aman)
 │   ├── compose_update.yml      ← Update + restart (smart skip)
-│   └── restart_nodes.yml       ← Rolling restart 1 server/waktu, jeda 2 menit
+│   ├── restart_nodes.yml       ← Rolling restart 1 server/waktu, jeda 2 menit
+│   └── scheduled_restart.yml   ← Toggle --scheduled-restart (enable/disable)
 └── roles/
     ├── 00_check_image/          ← Role: cek image saat ini
     │   └── tasks/main.yml
@@ -62,7 +70,9 @@ ansible-compose-update/
     │   └── tasks/main.yml
     ├── 02_restart_compose/      ← Role: restart (hanya node yang berubah)
     │   └── tasks/main.yml
-    └── 03_restart_node/         ← Role: restart semua node per server
+    ├── 03_restart_node/         ← Role: restart semua node per server
+    │   └── tasks/main.yml
+    └── 04_scheduled_restart/    ← Role: toggle --scheduled-restart
         └── tasks/main.yml
 ```
 
@@ -178,6 +188,56 @@ ansible-playbook playbooks/restart_nodes.yml --check
 ```
 
 > ⏳ Setiap server akan di-restart satu per satu. Setelah semua node di server selesai restart dan verified running, playbook akan **jeda 2 menit** sebelum lanjut ke server berikutnya.
+
+---
+
+### ⏰ Toggle `--scheduled-restart` (enable / disable)
+
+Tambah atau hapus (comment/uncomment) flag `--scheduled-restart` di section `command:` docker-compose.yaml.
+Waktu di-stagger otomatis per node (selang 5 menit berdasarkan nomor node):
+
+| Node | Waktu (default) |
+|---|---|
+| node-1 | `02:00:0` |
+| node-2 | `02:05:0` |
+| node-3 | `02:10:0` |
+| ... | +5 menit per node |
+| node-26 | `04:05:0` |
+
+**Playbook berjalan 2 fase:**
+1. **PHASE 1** — Edit docker-compose.yaml (semua server paralel)
+2. **PHASE 2** — Rolling restart: 1 server at a time, 2 menit jeda antar node
+
+```bash
+# Enable --scheduled-restart di SEMUA server (base 02:00, interval 5 menit)
+ansible-playbook playbooks/scheduled_restart.yml
+
+# Enable di server tertentu saja
+ansible-playbook playbooks/scheduled_restart.yml --limit server01,server05
+
+# Disable (comment out) di SEMUA server
+ansible-playbook playbooks/scheduled_restart.yml -e "scheduled_restart_action=disable"
+
+# Disable di server tertentu
+ansible-playbook playbooks/scheduled_restart.yml -e "scheduled_restart_action=disable" --limit server02,server03
+
+# Custom base time & interval
+ansible-playbook playbooks/scheduled_restart.yml \
+  -e "scheduled_restart_base_hour=3" \
+  -e "scheduled_restart_base_minute=0" \
+  -e "scheduled_restart_interval=10"
+
+# Hanya edit TANPA restart
+ansible-playbook playbooks/scheduled_restart.yml --tags phase1
+
+# Hanya restart TANPA edit
+ansible-playbook playbooks/scheduled_restart.yml --tags phase2
+
+# Dry-run (preview perubahan tanpa eksekusi)
+ansible-playbook playbooks/scheduled_restart.yml --check --diff
+```
+
+> ⏰ **Enable** = tambah/uncomment `--scheduled-restart` dengan waktu staggered per node. **Disable** = comment out dengan `#`. Backup `.bak` otomatis. Rolling restart 1 server per waktu, 2 menit jeda antar node.
 
 ---
 

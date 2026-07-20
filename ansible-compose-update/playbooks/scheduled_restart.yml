@@ -1,0 +1,81 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Playbook    : scheduled_restart.yml
+# Tujuan      : Toggle --scheduled-restart di docker-compose.yaml (staggered
+#               per node) dan rolling restart compose
+# Caller      : User (CLI)
+# Dependensi  : roles/04_scheduled_restart
+# Side Effects: Write ke docker-compose.yaml, docker-compose down & up
+#
+# Cara pakai:
+#   ENABLE di SEMUA server (default base 02:00, interval 5 menit):
+#     ansible-playbook playbooks/scheduled_restart.yml
+#
+#   ENABLE di server tertentu:
+#     ansible-playbook playbooks/scheduled_restart.yml --limit server01,server05
+#
+#   DISABLE (comment out) di SEMUA server:
+#     ansible-playbook playbooks/scheduled_restart.yml -e "scheduled_restart_action=disable"
+#
+#   DISABLE di server tertentu:
+#     ansible-playbook playbooks/scheduled_restart.yml -e "scheduled_restart_action=disable" --limit server02
+#
+#   Custom base time & interval:
+#     ansible-playbook playbooks/scheduled_restart.yml \
+#       -e "scheduled_restart_base_hour=3" \
+#       -e "scheduled_restart_base_minute=0" \
+#       -e "scheduled_restart_interval=10"
+#
+#   Hanya edit TANPA restart:
+#     ansible-playbook playbooks/scheduled_restart.yml --tags phase1
+#
+#   Hanya restart TANPA edit:
+#     ansible-playbook playbooks/scheduled_restart.yml --tags phase2
+#
+#   Dry-run:
+#     ansible-playbook playbooks/scheduled_restart.yml --check --diff
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 1: Edit docker-compose.yaml — tambah/update/comment --scheduled-restart
+#           Semua server paralel (serial: 13)
+# ══════════════════════════════════════════════════════════════════════════════
+- name: "PHASE 1 — Toggle --scheduled-restart di docker-compose.yaml"
+  hosts: servers
+  become: true
+  gather_facts: false
+  serial: 13
+  max_fail_percentage: 0
+  tags: phase1
+
+  vars:
+    compose_base_dir: "/data/compose"
+    scheduled_restart_action: "enable"           # enable | disable
+    scheduled_restart_base_hour: 2               # jam mulai (default: 02)
+    scheduled_restart_base_minute: 0             # menit mulai (default: 00)
+    scheduled_restart_interval: 5                # interval menit antar node
+
+  roles:
+    - 04_scheduled_restart
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 2: Rolling restart — 1 server at a time, jeda 2 menit per node
+# ══════════════════════════════════════════════════════════════════════════════
+- name: "PHASE 2 — Rolling Restart (1 server at a time, 2 menit per node)"
+  hosts: servers
+  become: true
+  gather_facts: false
+  serial: 1
+  max_fail_percentage: 0
+  tags: phase2
+
+  vars:
+    compose_base_dir: "/data/compose"
+
+  tasks:
+    - name: Rolling restart nodes yang diubah
+      ansible.builtin.include_role:
+        name: 04_scheduled_restart
+        tasks_from: restart.yml

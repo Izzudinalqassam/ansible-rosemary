@@ -1,0 +1,208 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Role       : 04_scheduled_restart (PHASE 1 — Edit)
+# Tujuan     : Toggle --scheduled-restart di command docker-compose.yaml
+#              dengan waktu staggered per node (interval 5 menit)
+# Caller     : playbooks/scheduled_restart.yml (PHASE 1)
+# Dependensi : compose_nodes (inventory), compose_base_dir
+# Main Vars  : scheduled_restart_action (enable|disable),
+#              scheduled_restart_base_hour, scheduled_restart_base_minute,
+#              scheduled_restart_interval
+# Side Effects: Write ke docker-compose.yaml (backup ke .bak sebelum edit)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── Parse node list dari inventory ──────────────────────────────────────────
+- name: Set node list dari inventory
+  ansible.builtin.set_fact:
+    node_list: "{{ compose_nodes.split(',') }}"
+
+- name: "📋 Node target di {{ inventory_hostname }}"
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} ({{ ansible_host }}) → {{ node_list | join(', ') }}
+      | Action: {{ scheduled_restart_action }}
+
+# ─── Cek compose file ada ────────────────────────────────────────────────────
+- name: Cek compose file exists di tiap node
+  ansible.builtin.stat:
+    path: "{{ compose_base_dir }}/{{ item }}/docker-compose.yaml"
+  register: compose_stat
+  loop: "{{ node_list }}"
+
+- name: Gagal jika ada compose file tidak ditemukan
+  ansible.builtin.fail:
+    msg: "❌ Compose file tidak ditemukan: {{ compose_base_dir }}/{{ item.item }}/docker-compose.yaml"
+  when: not item.stat.exists
+  loop: "{{ compose_stat.results }}"
+
+# ─── Hitung waktu scheduled-restart per node (staggered) ─────────────────────
+- name: Hitung waktu scheduled-restart per node
+  ansible.builtin.shell: |
+    node_num=$(echo "{{ item }}" | grep -oP '\d+$')
+    base_total_min=$(( {{ scheduled_restart_base_hour | int }} * 60 + {{ scheduled_restart_base_minute | int }} ))
+    offset=$(( (node_num - 1) * {{ scheduled_restart_interval | int }} ))
+    total=$(( base_total_min + offset ))
+    h=$(( total / 60 ))
+    m=$(( total % 60 ))
+    printf '%02d:%02d:0' "$h" "$m"
+  register: node_times_raw
+  changed_when: false
+  loop: "{{ node_list }}"
+  when: scheduled_restart_action == 'enable'
+
+- name: Build node time map
+  ansible.builtin.set_fact:
+    node_time_map: "{{ node_time_map | default({}) | combine({item.item: item.stdout}) }}"
+  loop: "{{ node_times_raw.results }}"
+  when: scheduled_restart_action == 'enable'
+
+- name: "⏰ Jadwal scheduled-restart per node"
+  ansible.builtin.debug:
+    msg: "⏰ {{ inventory_hostname }}/{{ item.key }} → --scheduled-restart {{ item.value }}"
+  loop: "{{ node_time_map | default({}) | dict2items }}"
+  when: scheduled_restart_action == 'enable'
+
+# ─── Cek status --scheduled-restart saat ini ─────────────────────────────────
+- name: Cek status --scheduled-restart di tiap node
+  ansible.builtin.shell: |
+    file="{{ compose_base_dir }}/{{ item }}/docker-compose.yaml"
+    if grep -qP '^\s+--scheduled-restart' "$file"; then
+      echo "active"
+    elif grep -qP '^\s+#\s*--scheduled-restart' "$file"; then
+      echo "commented"
+    else
+      echo "absent"
+    fi
+  register: sr_state
+  changed_when: false
+  loop: "{{ node_list }}"
+
+- name: Tampilkan status saat ini
+  ansible.builtin.debug:
+    msg: "🔍 {{ inventory_hostname }}/{{ item.item }} | --scheduled-restart: {{ item.stdout }}"
+  loop: "{{ sr_state.results }}"
+
+# ─── Kategorikan node berdasarkan status ─────────────────────────────────────
+- name: Kategorikan status tiap node
+  ansible.builtin.set_fact:
+    nodes_active: >-
+      {{ sr_state.results
+         | selectattr('stdout', 'equalto', 'active')
+         | map(attribute='item')
+         | list }}
+    nodes_commented: >-
+      {{ sr_state.results
+         | selectattr('stdout', 'equalto', 'commented')
+         | map(attribute='item')
+         | list }}
+    nodes_absent: >-
+      {{ sr_state.results
+         | selectattr('stdout', 'equalto', 'absent')
+         | map(attribute='item')
+         | list }}
+
+- name: "ℹ️  Ringkasan status"
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} |
+      Active: {{ nodes_active | length }} ({{ nodes_active | join(', ') | default('-') }}),
+      Commented: {{ nodes_commented | length }} ({{ nodes_commented | join(', ') | default('-') }}),
+      Absent: {{ nodes_absent | length }} ({{ nodes_absent | join(', ') | default('-') }})
+
+# ─── Tentukan nodes yang perlu diubah ────────────────────────────────────────
+- name: Tentukan nodes untuk enable (semua node — update/uncomment/tambah)
+  ansible.builtin.set_fact:
+    nodes_to_modify: "{{ node_list }}"
+  when: scheduled_restart_action == 'enable'
+
+- name: Tentukan nodes untuk disable (hanya yang aktif)
+  ansible.builtin.set_fact:
+    nodes_to_modify: "{{ nodes_active }}"
+  when: scheduled_restart_action == 'disable'
+
+- name: "🔄 Nodes yang akan diubah"
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} | {{ nodes_to_modify | length }} node perlu
+      di-{{ scheduled_restart_action }}:
+      {{ nodes_to_modify | join(', ') | default('tidak ada', true) }}
+
+# ─── Backup sebelum edit ─────────────────────────────────────────────────────
+- name: Backup docker-compose.yaml sebelum diubah
+  ansible.builtin.copy:
+    src: "{{ compose_base_dir }}/{{ item }}/docker-compose.yaml"
+    dest: "{{ compose_base_dir }}/{{ item }}/docker-compose.yaml.bak"
+    remote_src: true
+  loop: "{{ nodes_to_modify }}"
+  when: nodes_to_modify | length > 0
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENABLE: update/uncomment/tambah --scheduled-restart dengan waktu staggered
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# --- Update node yang sudah aktif (ganti waktu ke staggered) ---
+- name: "🔄 Update waktu --scheduled-restart (sudah aktif)"
+  ansible.builtin.replace:
+    path: "{{ compose_base_dir }}/{{ item }}/docker-compose.yaml"
+    regexp: '^\s+--scheduled-restart\s+.*$'
+    replace: "      --scheduled-restart {{ node_time_map[item] }}"
+  loop: "{{ nodes_active }}"
+  when:
+    - scheduled_restart_action == 'enable'
+    - nodes_active | length > 0
+
+# --- Uncomment node yang di-comment ---
+- name: "🔓 Uncomment --scheduled-restart (was commented)"
+  ansible.builtin.replace:
+    path: "{{ compose_base_dir }}/{{ item }}/docker-compose.yaml"
+    regexp: '^\s+#\s*--scheduled-restart.*$'
+    replace: "      --scheduled-restart {{ node_time_map[item] }}"
+  loop: "{{ nodes_commented }}"
+  when:
+    - scheduled_restart_action == 'enable'
+    - nodes_commented | length > 0
+
+# --- Tambah baris baru untuk node yang belum ada ---
+- name: "➕ Tambah --scheduled-restart (belum ada)"
+  ansible.builtin.lineinfile:
+    path: "{{ compose_base_dir }}/{{ item }}/docker-compose.yaml"
+    insertafter: '^\s+--node-num\s+'
+    line: "      --scheduled-restart {{ node_time_map[item] }}"
+  loop: "{{ nodes_absent }}"
+  when:
+    - scheduled_restart_action == 'enable'
+    - nodes_absent | length > 0
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DISABLE: comment out baris aktif
+# ═══════════════════════════════════════════════════════════════════════════════
+- name: "🔒 Comment out --scheduled-restart"
+  ansible.builtin.replace:
+    path: "{{ compose_base_dir }}/{{ item }}/docker-compose.yaml"
+    regexp: '^(\s+)(--scheduled-restart\s+.*)$'
+    replace: '\1#\2'
+  loop: "{{ nodes_to_modify }}"
+  when:
+    - scheduled_restart_action == 'disable'
+    - nodes_to_modify | length > 0
+
+# ─── Verifikasi hasil ────────────────────────────────────────────────────────
+- name: Verifikasi --scheduled-restart setelah edit
+  ansible.builtin.shell: |
+    grep -n 'scheduled-restart' {{ compose_base_dir }}/{{ item }}/docker-compose.yaml || echo "(tidak ditemukan)"
+  register: sr_verify
+  changed_when: false
+  loop: "{{ nodes_to_modify }}"
+  when: nodes_to_modify | length > 0
+
+- name: "✅ Hasil verifikasi"
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }}/{{ item.item }} → {{ item.stdout | trim }}"
+  loop: "{{ sr_verify.results | default([]) }}"
+  when: nodes_to_modify | length > 0
+
+# ─── Cache nodes_to_modify untuk PHASE 2 ─────────────────────────────────────
+- name: Simpan daftar nodes_to_modify untuk PHASE 2
+  ansible.builtin.set_fact:
+    nodes_to_modify: "{{ nodes_to_modify }}"
+    cacheable: true

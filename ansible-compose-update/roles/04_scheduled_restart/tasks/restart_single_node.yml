@@ -1,0 +1,54 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Task File  : restart_single_node.yml
+# Tujuan     : Restart satu node (down + up) lalu jeda 2 menit
+# Caller     : restart.yml (via include_tasks loop)
+# Dependensi : restart_node (loop_var), compose_base_dir
+# Side Effects: docker-compose down & up pada 1 node
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: "⬇️  Docker-compose DOWN → {{ restart_node }}"
+  ansible.builtin.shell: |
+    cd {{ compose_base_dir }}/{{ restart_node }}
+    docker-compose down
+    echo "⬇️  DOWN selesai: {{ restart_node }}"
+  register: down_result
+
+- name: Tampilkan output DOWN
+  ansible.builtin.debug:
+    msg: "{{ down_result.stdout_lines }}"
+
+- name: Tunggu 5 detik sebelum UP
+  ansible.builtin.pause:
+    seconds: 5
+
+- name: "⬆️  Docker-compose UP -d → {{ restart_node }}"
+  ansible.builtin.shell: |
+    cd {{ compose_base_dir }}/{{ restart_node }}
+    docker-compose up -d
+    echo "⬆️  UP selesai: {{ restart_node }}"
+  register: up_result
+
+- name: Tampilkan output UP
+  ansible.builtin.debug:
+    msg: "{{ up_result.stdout_lines }}"
+
+- name: Tunggu 10 detik untuk container startup
+  ansible.builtin.pause:
+    seconds: 10
+
+- name: Cek status container setelah UP
+  ansible.builtin.shell: |
+    docker ps --filter "name=visionaire4" --format "table {% raw %}{{.Names}}\t{{.Status}}\t{{.Ports}}{% endraw %}"
+  register: container_status
+  changed_when: false
+
+- name: "🐳 Status container setelah restart {{ restart_node }}"
+  ansible.builtin.debug:
+    msg: "🐳 {{ inventory_hostname }} ({{ ansible_host }}):\n{{ container_status.stdout }}"
+
+- name: "⏳ Jeda 2 menit sebelum restart node berikutnya"
+  ansible.builtin.pause:
+    seconds: 120
+    prompt: "⏳ Menunggu 2 menit sebelum restart node berikutnya..."
+  when: not ansible_loop.last
