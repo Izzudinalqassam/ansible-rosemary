@@ -136,10 +136,11 @@ ansible-rosemary/
 │   ├── inventory/
 │   │   └── hosts.ini.example
 │   ├── playbooks/
-│   │   ├── check_images.yml           ← Cek image (read-only, aman)
-│   │   ├── compose_update.yml         ← Update + restart (smart skip)
-│   │   ├── restart_nodes.yml          ← Rolling restart 1 server/waktu
-│   │   └── scheduled_restart.yml      ← Toggle --scheduled-restart
+│   │   ├── check_images.yml              ← Cek image (read-only, aman)
+│   │   ├── check_scheduled_restart.yml   ← Cek status --scheduled-restart (read-only)
+│   │   ├── compose_update.yml            ← Update + restart (smart skip)
+│   │   ├── restart_nodes.yml             ← Rolling restart 1 server/waktu
+│   │   └── scheduled_restart.yml         ← Toggle --scheduled-restart
 │   └── roles/
 │       ├── 00_check_image/            ← Cek image saat ini
 │       ├── 01_update_image/           ← Replace image (skip jika sama)
@@ -241,8 +242,12 @@ ansible-playbook playbooks/scheduled_restart.yml -e "scheduled_restart_action=di
 # Target server tertentu
 ansible-playbook playbooks/scheduled_restart.yml --limit server01,server05
 
-# Hanya edit tanpa restart
+# Hanya edit tanpa down & up
 ansible-playbook playbooks/scheduled_restart.yml --tags phase1
+
+# Validasi: cek status --scheduled-restart di semua node (read-only)
+ansible-playbook playbooks/check_scheduled_restart.yml
+ansible-playbook playbooks/check_scheduled_restart.yml --limit server01,server05
 ```
 
 ---

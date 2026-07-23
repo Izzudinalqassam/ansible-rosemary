@@ -1,0 +1,86 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Playbook    : check_scheduled_restart.yml
+# Tujuan      : Cek status --scheduled-restart di semua node (read-only)
+# Caller      : User (CLI)
+# Dependensi  : compose_nodes (inventory), compose_base_dir
+# Side Effects: None (read-only, tidak mengubah file apapun)
+#
+# Cara pakai:
+#   Cek semua server:
+#     ansible-playbook playbooks/check_scheduled_restart.yml
+#
+#   Cek server tertentu:
+#     ansible-playbook playbooks/check_scheduled_restart.yml --limit server01,server05
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: "🔍 Cek Status --scheduled-restart di Semua Node"
+  hosts: servers
+  become: true
+  gather_facts: false
+  serial: 13
+
+  vars:
+    compose_base_dir: "/data/compose"
+
+  tasks:
+    # ─── Parse node list ───────────────────────────────────────────────────────
+    - name: Set node list dari inventory
+      ansible.builtin.set_fact:
+        node_list: "{{ compose_nodes.split(',') }}"
+
+    - name: "📋 Nodes di {{ inventory_hostname }}"
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} ({{ ansible_host }}) → {{ node_list | join(', ') }}"
+
+    # ─── Cek compose file ada ──────────────────────────────────────────────────
+    - name: Cek compose file exists
+      ansible.builtin.stat:
+        path: "{{ compose_base_dir }}/{{ item }}/docker-compose.yaml"
+      register: compose_stat
+      loop: "{{ node_list }}"
+
+    - name: Gagal jika compose file tidak ditemukan
+      ansible.builtin.fail:
+        msg: "❌ Compose file tidak ditemukan: {{ compose_base_dir }}/{{ item.item }}/docker-compose.yaml"
+      when: not item.stat.exists
+      loop: "{{ compose_stat.results }}"
+
+    # ─── Cek baris --scheduled-restart di tiap node ────────────────────────────
+    - name: Cek --scheduled-restart di tiap node
+      ansible.builtin.shell: |
+        file="{{ compose_base_dir }}/{{ item }}/docker-compose.yaml"
+        if grep -qP '^\s+--scheduled-restart' "$file"; then
+          value=$(grep -oP '(?<=--scheduled-restart\s)\S+' "$file")
+          echo "✅ ACTIVE → --scheduled-restart $value"
+        elif grep -qP '^\s+#\s*--scheduled-restart' "$file"; then
+          value=$(grep -oP '(?<=#\s?--scheduled-restart\s)\S+' "$file" || echo "(no value)")
+          echo "💤 COMMENTED → #--scheduled-restart $value"
+        else
+          echo "❌ ABSENT → tidak ada --scheduled-restart"
+        fi
+      register: sr_check
+      changed_when: false
+      loop: "{{ node_list }}"
+
+    # ─── Tampilkan hasil ───────────────────────────────────────────────────────
+    - name: "⏰ Status --scheduled-restart"
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}/{{ item.item }} | {{ item.stdout }}"
+      loop: "{{ sr_check.results }}"
+
+    # ─── Ringkasan per server ──────────────────────────────────────────────────
+    - name: Hitung ringkasan
+      ansible.builtin.set_fact:
+        count_active: "{{ sr_check.results | map(attribute='stdout') | select('search', 'ACTIVE') | list | length }}"
+        count_commented: "{{ sr_check.results | map(attribute='stdout') | select('search', 'COMMENTED') | list | length }}"
+        count_absent: "{{ sr_check.results | map(attribute='stdout') | select('search', 'ABSENT') | list | length }}"
+
+    - name: "📊 Ringkasan {{ inventory_hostname }}"
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} |
+          ✅ Active: {{ count_active }},
+          💤 Commented: {{ count_commented }},
+          ❌ Absent: {{ count_absent }}
+          (total {{ node_list | length }} node)

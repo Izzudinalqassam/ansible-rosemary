@@ -59,10 +59,11 @@ ansible-compose-update/
 ├── inventory/
 │   └── hosts.ini
 ├── playbooks/
-│   ├── check_images.yml        ← Cek image (read-only, aman)
-│   ├── compose_update.yml      ← Update + restart (smart skip)
-│   ├── restart_nodes.yml       ← Rolling restart 1 server/waktu, jeda 2 menit
-│   └── scheduled_restart.yml   ← Toggle --scheduled-restart (enable/disable)
+│   ├── check_images.yml             ← Cek image (read-only, aman)
+│   ├── check_scheduled_restart.yml   ← Cek status --scheduled-restart (read-only)
+│   ├── compose_update.yml           ← Update + restart (smart skip)
+│   ├── restart_nodes.yml            ← Rolling restart 1 server/waktu, jeda 2 menit
+│   └── scheduled_restart.yml        ← Toggle --scheduled-restart (enable/disable)
 └── roles/
     ├── 00_check_image/          ← Role: cek image saat ini
     │   └── tasks/main.yml
@@ -237,7 +238,26 @@ ansible-playbook playbooks/scheduled_restart.yml --tags phase2
 ansible-playbook playbooks/scheduled_restart.yml --check --diff
 ```
 
-> ⏰ **Enable** = tambah/uncomment `--scheduled-restart` dengan waktu staggered per node. **Disable** = comment out dengan `#`. Backup `.bak` otomatis. Rolling restart 1 server per waktu, 2 menit jeda antar node.
+> ⏰ **Enable** = tambah/uncomment `--scheduled-restart` dengan waktu staggered per node. **Disable** = comment out dengan `#`. Backup `.bak` otomatis. Down & up 1 server per waktu, 2 menit jeda antar node.
+
+---
+
+### 🔍 Cek Status `--scheduled-restart` (read-only)
+
+Validasi apakah setiap node sudah punya command `--scheduled-restart` dan lihat nilainya. **Read-only**, tidak mengubah file apapun.
+
+```bash
+# Cek semua server
+ansible-playbook playbooks/check_scheduled_restart.yml
+
+# Cek server tertentu
+ansible-playbook playbooks/check_scheduled_restart.yml --limit server01,server05
+```
+
+Output per node:
+- ✅ **ACTIVE** — `--scheduled-restart` ada dan aktif (beserta nilainya)
+- 💤 **COMMENTED** — ada tapi di-comment (`#`)
+- ❌ **ABSENT** — belum ada sama sekali
 
 ---
 
