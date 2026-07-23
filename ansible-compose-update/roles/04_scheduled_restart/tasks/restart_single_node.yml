@@ -1,10 +1,12 @@
 ---
 # ═══════════════════════════════════════════════════════════════════════════════
 # Task File  : restart_single_node.yml
-# Tujuan     : Restart satu node (down + up) lalu jeda 2 menit
+# Tujuan     : Down & up satu node (docker-compose down lalu up -d),
+#              bukan docker-compose restart — supaya perubahan compose ke-apply.
+#              Jeda 2 menit setelah up agar node fully running sebelum lanjut.
 # Caller     : restart.yml (via include_tasks loop)
 # Dependensi : restart_node (loop_var), compose_base_dir
-# Side Effects: docker-compose down & up pada 1 node
+# Side Effects: docker-compose down & up -d pada 1 node
 # ═══════════════════════════════════════════════════════════════════════════════
 
 - name: "⬇️  Docker-compose DOWN → {{ restart_node }}"
@@ -43,12 +45,12 @@
   register: container_status
   changed_when: false
 
-- name: "🐳 Status container setelah restart {{ restart_node }}"
+- name: "🐳 Status container setelah down & up {{ restart_node }}"
   ansible.builtin.debug:
     msg: "🐳 {{ inventory_hostname }} ({{ ansible_host }}):\n{{ container_status.stdout }}"
 
-- name: "⏳ Jeda 2 menit sebelum restart node berikutnya"
+- name: "⏳ Jeda 2 menit agar node fully up sebelum lanjut ke node berikutnya"
   ansible.builtin.pause:
     seconds: 120
-    prompt: "⏳ Menunggu 2 menit sebelum restart node berikutnya..."
+    prompt: "⏳ {{ restart_node }} sudah UP. Menunggu 2 menit sebelum down & up node berikutnya..."
   when: not ansible_loop.last

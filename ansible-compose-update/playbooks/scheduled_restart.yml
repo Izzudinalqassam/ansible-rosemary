@@ -2,10 +2,10 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # Playbook    : scheduled_restart.yml
 # Tujuan      : Toggle --scheduled-restart di docker-compose.yaml (staggered
-#               per node) dan rolling restart compose
+#               per node) lalu down & up compose (bukan restart)
 # Caller      : User (CLI)
 # Dependensi  : roles/04_scheduled_restart
-# Side Effects: Write ke docker-compose.yaml, docker-compose down & up
+# Side Effects: Write ke docker-compose.yaml, docker-compose down & up -d
 #
 # Cara pakai:
 #   ENABLE di SEMUA server (default base 02:00, interval 5 menit):
@@ -26,10 +26,10 @@
 #       -e "scheduled_restart_base_minute=0" \
 #       -e "scheduled_restart_interval=10"
 #
-#   Hanya edit TANPA restart:
+#   Hanya edit TANPA down & up:
 #     ansible-playbook playbooks/scheduled_restart.yml --tags phase1
 #
-#   Hanya restart TANPA edit:
+#   Hanya down & up TANPA edit:
 #     ansible-playbook playbooks/scheduled_restart.yml --tags phase2
 #
 #   Dry-run:
@@ -61,9 +61,10 @@
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PHASE 2: Rolling restart — 1 server at a time, jeda 2 menit per node
+# PHASE 2: Down & up — 1 server at a time, urut dari node terkecil,
+#          jeda 2 menit per node agar fully up sebelum lanjut
 # ══════════════════════════════════════════════════════════════════════════════
-- name: "PHASE 2 — Rolling Restart (1 server at a time, 2 menit per node)"
+- name: "PHASE 2 — Down & Up (1 server, urut per node, jeda 2 menit)"
   hosts: servers
   become: true
   gather_facts: false
@@ -75,7 +76,7 @@
     compose_base_dir: "/data/compose"
 
   tasks:
-    - name: Rolling restart nodes yang diubah
+    - name: Down & up nodes yang diubah (urut dari nomor terkecil)
       ansible.builtin.include_role:
         name: 04_scheduled_restart
         tasks_from: restart.yml

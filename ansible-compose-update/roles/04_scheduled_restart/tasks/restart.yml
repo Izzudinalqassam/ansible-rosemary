@@ -1,10 +1,10 @@
 ---
 # ═══════════════════════════════════════════════════════════════════════════════
 # Task File  : restart.yml (dipanggil dari playbook PHASE 2 via include_role)
-# Tujuan     : Rolling restart per node dengan jeda 2 menit antar node
+# Tujuan     : Down & up per node, urut dari nomor terkecil, jeda 2 menit
 # Caller     : playbooks/scheduled_restart.yml (PHASE 2)
 # Dependensi : nodes_to_modify (cached dari PHASE 1), compose_base_dir
-# Side Effects: docker-compose down & up pada tiap node
+# Side Effects: docker-compose down & up -d pada tiap node (bukan restart)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ─── Parse node list ─────────────────────────────────────────────────────────
@@ -12,26 +12,39 @@
   ansible.builtin.set_fact:
     node_list: "{{ compose_nodes.split(',') }}"
 
-# ─── Tentukan nodes yang perlu di-restart ────────────────────────────────────
+# ─── Tentukan nodes yang perlu di-down/up ────────────────────────────────────
 - name: Gunakan nodes_to_modify dari PHASE 1 (fallback ke semua node)
   ansible.builtin.set_fact:
-    nodes_to_restart: "{{ nodes_to_modify | default(node_list) }}"
+    nodes_to_downup: "{{ nodes_to_modify | default(node_list) }}"
 
-- name: "🔄 Nodes yang akan di-restart di {{ inventory_hostname }}"
+# ─── Sort node by number (node-1 duluan, lalu node-2, dst) ──────────────────
+- name: Sort nodes berdasarkan nomor node
+  ansible.builtin.shell: |
+    printf '%s\n' {{ nodes_to_downup | join(' ') }} | sort -t'-' -k3 -n
+  register: sorted_nodes
+  changed_when: false
+  when: nodes_to_downup | length > 0
+
+- name: Set sorted node list
+  ansible.builtin.set_fact:
+    nodes_to_downup: "{{ sorted_nodes.stdout_lines }}"
+  when: nodes_to_downup | length > 0
+
+- name: "📋 Nodes yang akan di-down & up di {{ inventory_hostname }}"
   ansible.builtin.debug:
-    msg: "{{ inventory_hostname }} ({{ ansible_host }}) → {{ nodes_to_restart | join(', ') }}"
+    msg: "{{ inventory_hostname }} ({{ ansible_host }}) → {{ nodes_to_downup | join(', ') }}"
 
-# ─── Skip jika tidak ada yang perlu restart ──────────────────────────────────
-- name: Skip restart jika tidak ada node yang diubah
+# ─── Skip jika tidak ada node ────────────────────────────────────────────────
+- name: Skip jika tidak ada node yang diubah
   ansible.builtin.debug:
-    msg: "✅ {{ inventory_hostname }} | Tidak ada node yang perlu di-restart"
-  when: nodes_to_restart | length == 0
+    msg: "✅ {{ inventory_hostname }} | Tidak ada node yang perlu di-down & up"
+  when: nodes_to_downup | length == 0
 
-# ─── Rolling restart per node (jeda 2 menit antar node) ──────────────────────
-- name: "🔄 Rolling restart per node"
+# ─── Down & up per node (jeda 2 menit antar node) ───────────────────────────
+- name: "🔄 Down & up per node (jeda 2 menit)"
   ansible.builtin.include_tasks: restart_single_node.yml
-  loop: "{{ nodes_to_restart }}"
+  loop: "{{ nodes_to_downup }}"
   loop_control:
     loop_var: restart_node
     extended: true
-  when: nodes_to_restart | length > 0
+  when: nodes_to_downup | length > 0
