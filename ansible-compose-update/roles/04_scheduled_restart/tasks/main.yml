@@ -38,7 +38,7 @@
 # ─── Hitung waktu scheduled-restart per node (staggered) ─────────────────────
 - name: Hitung waktu scheduled-restart per node
   ansible.builtin.shell: |
-    node_num=$(echo "{{ item }}" | grep -oP '\d+$')
+    node_num=$(echo "{{ item }}" | grep -oP '\d+$' | awk '{print $1+0}')
     base_total_min=$(( {{ scheduled_restart_base_hour | int }} * 60 + {{ scheduled_restart_base_minute | int }} ))
     offset=$(( (node_num - 1) * {{ scheduled_restart_interval | int }} ))
     total=$(( base_total_min + offset ))
