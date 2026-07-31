@@ -1,0 +1,11 @@
+---
+# =====================================================================
+# Tujuan: Default variables untuk role init_services
+# =====================================================================
+
+mandatory_services:
+  - database
+  - dashboard
+
+deploy_root_if_data_exists: "/data/deployments"
+deploy_root_if_no_data: "/deployments"

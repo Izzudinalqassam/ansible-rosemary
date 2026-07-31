@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  timescaledb:
+    image: timescale/timescaledb-ha:pg17
+    user: "999:999"
+    container_name: timescaledb
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=nfvisionaire123
+      - PGDATA=/pgdata
+    volumes:
+      - ./data:/pgdata
+    ports:
+      - "5432:5432"
+    restart: always
+    networks:
+      - nf-visionaire
+
+networks:
+  nf-visionaire:
+    external: true

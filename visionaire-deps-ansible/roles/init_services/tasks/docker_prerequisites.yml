@@ -1,0 +1,47 @@
+---
+# =====================================================================
+# Tujuan: Buat docker network & volume yang dibutuhkan service
+# Caller: roles/init_services/tasks/main.yml
+# Side Effects: Docker network create, Docker volume create
+# =====================================================================
+
+# --- Docker Network: nf-visionaire ---
+
+- name: Cek apakah docker network nf-visionaire sudah ada
+  ansible.builtin.command: docker network inspect nf-visionaire
+  register: network_check
+  changed_when: false
+  failed_when: false
+
+- name: Buat docker network nf-visionaire
+  ansible.builtin.command: docker network create nf-visionaire
+  when: network_check.rc != 0
+  register: network_created
+
+- name: Info network
+  ansible.builtin.debug:
+    msg: "{{ 'Docker network nf-visionaire dibuat.' if (network_created is defined and network_created.changed) else 'Docker network nf-visionaire sudah ada, skip.' }}"
+
+# --- Docker Volume: analytic-volume (hanya kalau service yang butuh terpilih) ---
+
+- name: Cek apakah service yang butuh analytic-volume terpilih
+  ansible.builtin.set_fact:
+    needs_analytic_volume: "{{ ('liodra' in all_services) or ('v4-offline-analysis' in all_services) }}"
+
+- name: Cek apakah docker volume analytic-volume sudah ada
+  ansible.builtin.command: docker volume inspect analytic-volume
+  register: volume_check
+  changed_when: false
+  failed_when: false
+  when: needs_analytic_volume
+
+- name: Buat docker volume analytic-volume
+  ansible.builtin.command: docker volume create analytic-volume
+  when:
+    - needs_analytic_volume
+    - volume_check.rc != 0
+  register: volume_created
+
+- name: Info volume
+  ansible.builtin.debug:
+    msg: "{{ 'Docker volume analytic-volume dibuat.' if (volume_created is defined and volume_created.changed) else ('Docker volume analytic-volume sudah ada, skip.' if needs_analytic_volume else 'analytic-volume tidak dibutuhkan, skip.') }}"

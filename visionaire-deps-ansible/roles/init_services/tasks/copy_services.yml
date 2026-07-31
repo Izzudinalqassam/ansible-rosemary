@@ -1,0 +1,16 @@
+---
+# =====================================================================
+# Tujuan: Copy compose files dari control machine ke server target
+# Caller: roles/init_services/tasks/main.yml
+# Side Effects: File I/O (copy files ke remote server)
+# =====================================================================
+
+- name: Copy folder compose untuk setiap service ke server
+  ansible.builtin.copy:
+    src: "{{ compose_examples_path }}/{{ item }}/"
+    dest: "{{ deploy_root }}/{{ item }}/"
+    mode: "0644"
+    directory_mode: "0755"
+  loop: "{{ all_services }}"
+  loop_control:
+    label: "{{ item }} → {{ deploy_root }}/{{ item }}/"

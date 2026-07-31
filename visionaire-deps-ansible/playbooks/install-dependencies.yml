@@ -1,0 +1,45 @@
+---
+# =====================================================================
+# Tujuan: Install seluruh dependencies VisionAIre
+# Prasyarat: Server Ubuntu 22.04+ dengan akses SSH
+# Jalankan: ansible-playbook playbooks/install-dependencies.yml
+# Side Effects: Install packages, reboot server (jika ada NVIDIA driver baru)
+#
+# Urutan:
+#   1. Bootstrap Python3 (untuk server fresh)
+#   2. Install NVIDIA Driver + reboot otomatis
+#   3. Install Docker CE + nvidia-docker2 + docker-compose
+# =====================================================================
+
+# --- Bootstrap Python ---
+- name: "[1/3] Bootstrap Python (untuk server fresh install)"
+  hosts: visionaire_servers
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Cek apakah python3 sudah ada
+      ansible.builtin.raw: which python3 || echo "NOT_FOUND"
+      register: python3_check
+      changed_when: false
+
+    - name: Install python3 kalau belum ada (pakai raw, tanpa perlu python dulu)
+      ansible.builtin.raw: apt-get update && apt-get install -y python3 python3-apt
+      when: "'NOT_FOUND' in python3_check.stdout"
+
+# --- NVIDIA Driver + Reboot ---
+- name: "[2/3] Install NVIDIA Driver & Reboot"
+  hosts: visionaire_servers
+  become: true
+  gather_facts: true
+  roles:
+    - nvidia_driver
+
+# --- Docker Stack ---
+- name: "[3/3] Install Docker Stack (docker-ce, nvidia-docker2, docker-compose)"
+  hosts: visionaire_servers
+  become: true
+  gather_facts: true
+  roles:
+    - docker
+    - nvidia_docker
+    - docker_compose

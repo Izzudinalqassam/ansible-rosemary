@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  lenz-dashboard:
+    image: registry.gitlab.com/nodefluxio/lenz:4.3.2
+    container_name: lenz-dashboard
+    restart: unless-stopped
+    networks:
+      - nf-visionaire
+    shm_size: 1gb
+    logging:
+      driver: json-file
+      options:
+        max-size: "5g"
+        max-file: "1"
+    environment: 
+      DB_HOST: {ip}:5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: nfvisionaire123
+      DB_NAME: lenz
+      VISIONAIRE_HOST: {ip}:4004
+      FREMISN_URL: http://{ip}:4005/v1
+    ports:
+      - "4003:4003"
+
+networks:
+  nf-visionaire:
+    external: true

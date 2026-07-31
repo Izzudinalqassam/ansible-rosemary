@@ -1,0 +1,44 @@
+---
+# =====================================================================
+# Tujuan: Inisialisasi service dari compose-examples
+# Prasyarat: Docker terinstall, folder deployment sudah ada (atau akan dibuat)
+# Jalankan: ansible-playbook playbooks/init-services.yml
+# Non-interaktif: ansible-playbook playbooks/init-services.yml \
+#                   -e "target_ip=x.x.x.x" \
+#                   -e "optional_services_input=v4,liodra"
+# Side Effects: Copy compose files, replace IP, buat docker network/volume
+#
+# Yang dilakukan:
+#   1. Deteksi lokasi deployment
+#   2. Buat subfolder per service
+#   3. Buat docker network + volume (idempotent)
+#   4. Copy compose files dari compose-examples/
+#   5. Replace placeholder {ip} dengan IP target
+# =====================================================================
+
+- name: "Inisialisasi Service VisionAIre"
+  hosts: visionaire_servers
+  become: true
+  gather_facts: false
+
+  vars_prompt:
+    - name: target_ip
+      prompt: "\n====================================================\nINISIALISASI SERVICE VISIONAIRE\n====================================================\n\nMasukkan IP address server untuk deployment"
+      private: false
+
+    - name: optional_services_input
+      prompt: "\nService WAJIB (otomatis): database, dashboard\n\nService TAMBAHAN yang tersedia:\n  v4, v4-intel-nuc, v4-offline-analysis,\n  fremisn-cpu, fremisn-gpu, liodra, qwertex\n\nPilih service tambahan (pisahkan koma, kosongkan jika tidak ada)"
+      private: false
+      default: ""
+
+  pre_tasks:
+    - name: "Validasi — target_ip tidak boleh kosong"
+      ansible.builtin.fail:
+        msg: |
+          ❌ target_ip tidak boleh kosong.
+          Jalankan ulang dan masukkan IP yang valid, atau gunakan:
+            ansible-playbook playbooks/init-services.yml -e "target_ip=x.x.x.x"
+      when: target_ip is not defined or target_ip | trim == ""
+
+  roles:
+    - init_services

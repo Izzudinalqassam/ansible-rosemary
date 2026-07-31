@@ -1,0 +1,104 @@
+---
+# =====================================================================
+# Tujuan: Verifikasi semua dependencies sudah terinstall dengan benar
+# Caller: site.yml Play 3
+# Dependensi: roles nvidia_driver, docker, nvidia_docker, docker_compose
+# Main Functions: cek python3, docker, docker-compose, nvidia-smi, nvidia runtime
+# Side Effects: None (read-only checks)
+# =====================================================================
+
+- name: Cek apakah GPU NVIDIA ada di server ini
+  ansible.builtin.shell: "lspci | grep -i nvidia || true"
+  register: gpu_present
+  changed_when: false
+
+# --- Jalankan semua pengecekan (tidak langsung fail, dikumpulkan dulu) ---
+
+- name: "Verifikasi: Python3"
+  ansible.builtin.command: python3 --version
+  register: verify_python3
+  changed_when: false
+  failed_when: false
+
+- name: "Verifikasi: Docker terinstall"
+  ansible.builtin.command: docker --version
+  register: verify_docker
+  changed_when: false
+  failed_when: false
+
+- name: "Verifikasi: Docker service aktif"
+  ansible.builtin.command: systemctl is-active docker
+  register: verify_docker_service
+  changed_when: false
+  failed_when: false
+
+- name: "Verifikasi: docker-compose terinstall"
+  ansible.builtin.command: docker-compose --version
+  register: verify_compose
+  changed_when: false
+  failed_when: false
+
+- name: "Verifikasi: docker-compose versi sesuai"
+  ansible.builtin.set_fact:
+    compose_version_ok: "{{ docker_compose_version in (verify_compose.stdout | default('')) }}"
+
+- name: "Verifikasi: NVIDIA Driver (nvidia-smi)"
+  ansible.builtin.command: nvidia-smi
+  register: verify_nvidia_smi
+  changed_when: false
+  failed_when: false
+  when: gpu_present.stdout != ""
+
+- name: "Verifikasi: NVIDIA Runtime di Docker"
+  ansible.builtin.shell: "docker info 2>/dev/null | grep -i 'nvidia' || true"
+  register: verify_nvidia_runtime
+  changed_when: false
+  when: gpu_present.stdout != ""
+
+# --- Kumpulkan semua hasil & tampilkan sekaligus ---
+
+- name: Kumpulkan daftar kegagalan
+  ansible.builtin.set_fact:
+    verification_failures: >-
+      {{
+        ([] if verify_python3.rc == 0 else ['Python3 tidak ditemukan']) +
+        ([] if verify_docker.rc == 0 else ['Docker tidak terinstall']) +
+        ([] if (verify_docker_service.stdout | default('')) == 'active' else ['Docker service tidak aktif']) +
+        ([] if verify_compose.rc == 0 else ['docker-compose tidak terinstall']) +
+        ([] if (compose_version_ok | default(false) | bool) else ['docker-compose versi tidak sesuai (expected: ' + docker_compose_version + ')']) +
+        ([] if (gpu_present.stdout == '' or (verify_nvidia_smi.rc | default(1)) == 0) else ['NVIDIA Driver gagal (nvidia-smi error)']) +
+        ([] if (gpu_present.stdout == '' or 'nvidia' in (verify_nvidia_runtime.stdout | default(''))) else ['NVIDIA Runtime tidak terdaftar di Docker'])
+      }}
+
+- name: Tampilkan hasil verifikasi
+  ansible.builtin.debug:
+    msg:
+      - "===================================================="
+      - "HASIL VERIFIKASI DEPENDENCIES — {{ inventory_hostname }}"
+      - "===================================================="
+      - "Python3        : {{ '✅ OK' if verify_python3.rc == 0 else '❌ GAGAL' }}"
+      - "Docker         : {{ '✅ OK' if verify_docker.rc == 0 else '❌ GAGAL' }}"
+      - "Docker Service : {{ '✅ aktif' if (verify_docker_service.stdout | default('')) == 'active' else '❌ tidak aktif' }}"
+      - "docker-compose : {{ '✅ OK' if verify_compose.rc == 0 and (compose_version_ok | bool) else '❌ GAGAL' }}"
+      - "NVIDIA Driver  : {{ '⏭️  skip (no GPU)' if gpu_present.stdout == '' else ('✅ OK' if (verify_nvidia_smi.rc | default(1)) == 0 else '❌ GAGAL') }}"
+      - "NVIDIA Runtime : {{ '⏭️  skip (no GPU)' if gpu_present.stdout == '' else ('✅ OK' if 'nvidia' in (verify_nvidia_runtime.stdout | default('')) else '❌ GAGAL') }}"
+      - "===================================================="
+
+- name: "STOP — dependency verification gagal"
+  ansible.builtin.fail:
+    msg: |
+      ❌ VERIFIKASI GAGAL — proses dihentikan.
+
+      Dependency yang bermasalah:
+      {% for item in verification_failures %}
+        - {{ item }}
+      {% endfor %}
+
+      Perbaiki dependency di atas, lalu jalankan ulang:
+        ansible-playbook site.yml --tags deps,verify
+  when: verification_failures | length > 0
+
+- name: Semua dependency OK
+  ansible.builtin.debug:
+    msg: "✅ Semua dependency terverifikasi, siap lanjut ke inisialisasi service."
+  when: verification_failures | length == 0

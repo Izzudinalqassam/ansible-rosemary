@@ -1,0 +1,19 @@
+---
+# =====================================================================
+# Tujuan: Buat struktur folder deployment di server target
+# Caller: roles/init_services/tasks/main.yml
+# Side Effects: File I/O (mkdir)
+# =====================================================================
+
+- name: Buat direktori deployment root
+  ansible.builtin.file:
+    path: "{{ deploy_root }}"
+    state: directory
+    mode: "0755"
+
+- name: Buat subfolder untuk setiap service
+  ansible.builtin.file:
+    path: "{{ deploy_root }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ all_services }}"

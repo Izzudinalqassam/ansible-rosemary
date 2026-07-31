@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  fremisn:
+    image: registry.gitlab.com/nodefluxio/fremis-n:v3.2.4-cpu
+    container_name: fremisn
+    restart: unless-stopped
+    networks:
+      - nf-visionaire
+    ports:
+      - "4005:4005"
+      - "4006:4006"
+    extra_hosts:
+      - api.cloud.nodeflux.io:{ip}
+    privileged: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "4g"
+        max-file: "1"
+    environment:
+      - FREMISN_BATCH_SEARCH_MAX_SIZE=1
+    command:
+      httpserver
+      --access-key C10TIV4CFX78KJN2G6F8UR1H8
+      --secret-key 9Qqusj6scJgofDfzb5KhA3HvGCZ5wzf9gpzJnADsfzpuBq11WAXeUvsKSET2lx8x
+      --dk 54690da2-e562-4eab-bbb4-df3364edc0a9
+      --db-address {ip}
+      --db-port 5432
+      --db-name fremisn
+      --db-username postgres
+      --db-password nfvisionaire123
+      --listen-port 4005
+      --listen-port-monitoring 4006
+      --storage postgres
+      --verbose
+      --max-workers 1
+
+networks:
+  nf-visionaire:
+    external: true

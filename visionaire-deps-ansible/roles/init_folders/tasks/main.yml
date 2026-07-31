@@ -1,0 +1,75 @@
+---
+# =====================================================================
+# Tujuan: Inisialisasi folder deployment + docker network & volume
+# Caller: playbooks/init-folders.yml
+# Side Effects: mkdir, docker network create, docker volume create
+# =====================================================================
+
+# --- Deteksi lokasi deployment ---
+
+- name: Cek apakah /data ada di server
+  ansible.builtin.stat:
+    path: /data
+  register: data_dir_check
+
+- name: Set deployment root berdasarkan keberadaan /data
+  ansible.builtin.set_fact:
+    deploy_root: "{{ deploy_root_if_data_exists if data_dir_check.stat.exists else deploy_root_if_no_data }}"
+
+- name: Tampilkan lokasi deployment
+  ansible.builtin.debug:
+    msg: "Deployment root: {{ deploy_root }} ({{ '/data ditemukan' if data_dir_check.stat.exists else '/data tidak ada' }})"
+
+# --- Buat direktori deployment ---
+
+- name: Buat direktori deployment root
+  ansible.builtin.file:
+    path: "{{ deploy_root }}"
+    state: directory
+    mode: "0755"
+
+# --- Docker Network: nf-visionaire ---
+
+- name: Cek apakah docker network nf-visionaire sudah ada
+  ansible.builtin.command: docker network inspect nf-visionaire
+  register: network_check
+  changed_when: false
+  failed_when: false
+
+- name: Buat docker network nf-visionaire
+  ansible.builtin.command: docker network create nf-visionaire
+  when: network_check.rc != 0
+
+- name: Info network
+  ansible.builtin.debug:
+    msg: "Docker network nf-visionaire: {{ 'dibuat' if network_check.rc != 0 else 'sudah ada' }}"
+
+# --- Docker Volume: analytic-volume ---
+
+- name: Cek apakah docker volume analytic-volume sudah ada
+  ansible.builtin.command: docker volume inspect analytic-volume
+  register: volume_check
+  changed_when: false
+  failed_when: false
+
+- name: Buat docker volume analytic-volume
+  ansible.builtin.command: docker volume create analytic-volume
+  when: volume_check.rc != 0
+
+- name: Info volume
+  ansible.builtin.debug:
+    msg: "Docker volume analytic-volume: {{ 'dibuat' if volume_check.rc != 0 else 'sudah ada' }}"
+
+# --- Ringkasan ---
+
+- name: Ringkasan inisialisasi folder
+  ansible.builtin.debug:
+    msg:
+      - "===================================================="
+      - "INISIALISASI FOLDER SELESAI"
+      - "===================================================="
+      - "Server     : {{ inventory_hostname }}"
+      - "Deploy root: {{ deploy_root }}"
+      - "Network    : nf-visionaire ✅"
+      - "Volume     : analytic-volume ✅"
+      - "===================================================="

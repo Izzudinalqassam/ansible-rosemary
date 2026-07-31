@@ -1,0 +1,35 @@
+version: '3.7'
+services:
+  visionaire4:
+    image: nodefluxio/visionaire4:4.57.53-blackwell
+    container_name: visionaire4
+    restart: unless-stopped
+    ports:
+      - "4004:4004"
+    extra_hosts:
+      - api.cloud.nodeflux.io:{ip}
+    networks:
+      - nf-visionaire
+    shm_size: "16gb"
+    logging:
+      options:
+        max-size: "5g"
+    devices:
+      - "/dev/dri/renderD128:/dev/dri/renderD128"
+      - "/dev/accel/accel0:/dev/accel/accel0"
+    command: >
+      --enable-cors
+      --access-key C10TIV4CFX78KJN2G6F8UR1H8
+      --secret-key 9Qqusj6scJgofDfzb5KhA3HvGCZ5wzf9gpzJnADsfzpuBq11WAXeUvsKSET2lx8x
+      --deployment-key 3d6655b0-74b0-4455-a64e-038d33d41fc3
+      --db-host {ip}
+      --db-port 5432
+      --db-name nfv4
+      --db-user postgres
+      --db-password nfvisionaire123
+      --fr-address {ip}:4005
+      --fr-keyspace-name default
+
+networks:
+  nf-visionaire:
+    external: true

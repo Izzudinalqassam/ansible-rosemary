@@ -1,0 +1,18 @@
+---
+# =====================================================================
+# Tujuan: Verifikasi seluruh dependencies sudah terinstall dengan benar
+# Prasyarat: Sudah menjalankan install-dependencies.yml
+# Jalankan: ansible-playbook playbooks/verify-dependencies.yml
+# Side Effects: None (read-only checks)
+#
+# Yang dicek:
+#   - Python3, Docker, Docker service, docker-compose (versi)
+#   - NVIDIA Driver + NVIDIA Runtime (jika server ada GPU)
+# =====================================================================
+
+- name: "Verifikasi Dependencies VisionAIre"
+  hosts: visionaire_servers
+  become: true
+  gather_facts: false
+  roles:
+    - verify_deps

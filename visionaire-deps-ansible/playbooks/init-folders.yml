@@ -1,0 +1,19 @@
+---
+# =====================================================================
+# Tujuan: Inisialisasi folder deployment + docker network & volume
+# Prasyarat: Docker sudah terinstall
+# Jalankan: ansible-playbook playbooks/init-folders.yml
+# Side Effects: Buat folder, docker network, docker volume
+#
+# Hasil:
+#   - Folder deployment: /data/deployments (jika /data ada) atau /deployments
+#   - Docker network: nf-visionaire
+#   - Docker volume: analytic-volume
+# =====================================================================
+
+- name: "Inisialisasi Folder Deployment"
+  hosts: visionaire_servers
+  become: true
+  gather_facts: false
+  roles:
+    - init_folders

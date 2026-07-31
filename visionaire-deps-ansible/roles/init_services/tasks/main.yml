@@ -1,0 +1,50 @@
+---
+# =====================================================================
+# Tujuan: Orchestrator inisialisasi service VisionAIre
+# Caller: site.yml Play 4
+# Dependensi: compose-examples templates, docker engine
+# Main Functions: detect paths, create dirs, copy services, replace IP
+# Side Effects: File I/O (create dirs, copy files), Docker network/volume
+# =====================================================================
+
+- name: "=== TAHAP 1/5: Deteksi lokasi deployment ==="
+  ansible.builtin.include_tasks: detect_paths.yml
+
+- name: "=== TAHAP 2/5: Buat struktur folder ==="
+  ansible.builtin.include_tasks: create_directories.yml
+
+- name: "=== TAHAP 3/5: Buat docker network & volume ==="
+  ansible.builtin.include_tasks: docker_prerequisites.yml
+
+- name: "=== TAHAP 4/5: Copy compose files ==="
+  ansible.builtin.include_tasks: copy_services.yml
+
+- name: "=== TAHAP 5/5: Replace placeholder IP ==="
+  ansible.builtin.include_tasks: replace_ip.yml
+
+# --- Ringkasan akhir ---
+- name: Tampilkan ringkasan inisialisasi
+  ansible.builtin.debug:
+    msg:
+      - "===================================================="
+      - "INISIALISASI SERVICE SELESAI"
+      - "===================================================="
+      - "Server          : {{ inventory_hostname }}"
+      - "Deploy root     : {{ deploy_root }}"
+      - "Target IP       : {{ target_ip }}"
+      - "Service wajib   : {{ mandatory_services | join(', ') }}"
+      - "Service opsional: {{ optional_services | join(', ') | default('(tidak ada)', true) }}"
+      - "===================================================="
+      - ""
+      - "Langkah selanjutnya (MANUAL):"
+      - "  1. SSH ke server  : ssh {{ ansible_user }}@{{ inventory_hostname }}"
+      - "  2. Masuk ke folder: cd {{ deploy_root }}/<nama-service>"
+      - "  3. Jalankan       : docker-compose up -d"
+      - ""
+      - "Urutan start yang disarankan:"
+      - "  1. database (paling awal)"
+      - "  2. fremisn-cpu / fremisn-gpu"
+      - "  3. liodra, qwertex (paralel OK)"
+      - "  4. v4 / v4-intel-nuc / v4-offline-analysis"
+      - "  5. dashboard (paling akhir, butuh semua service di atas)"
+      - "===================================================="

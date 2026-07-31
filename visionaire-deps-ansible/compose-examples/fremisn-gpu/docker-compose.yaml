@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  fremisn:
+    image: nodefluxio/fremis-n:v3.1.7-gpu
+    container_name: fremisn
+    restart: unless-stopped
+    ports:
+      - "4005:4005"
+    extra_hosts:
+      - "api.cloud.nodeflux.io:{ip}"
+    networks:
+      - nf-visionaire
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      httpserver
+      --access-key DIAC3I4CPS2D7O6IL06GA8PD8
+      --secret-key iyqrJFU_ApSkbhS-OyQX_4IKRfiOwfMjJ0_v4aIx5eSwBAKxocDe8sIRoA2hExiC
+      --dk 5f9bfcdf-aa9e-4ea2-8564-8a818768857f
+      --db-address {ip}
+      --db-port 5432
+      --db-name fremisn
+      --db-username postgres
+      --db-password nfvisionaire123
+      --storage postgres
+      --verbose
+
+networks:
+  nf-visionaire:
+    external: true

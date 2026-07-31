@@ -1,0 +1,55 @@
+version: "3.9"
+
+services:
+  visionaire4:
+    image: registry.gitlab.com/nodefluxio/visionaire4:offline_analysis_schedulled
+    container_name: visionaire4-master
+    restart: unless-stopped
+    shm_size: 16gb
+    ports:
+      - "4004:4004"
+    extra_hosts:
+      - api.cloud.nodeflux.io:{ip}
+    privileged: true
+    volumes:
+      - type: volume
+        source: analytic-volume
+        target: /workspaces/visionaire4/videos/
+        volume:
+          subpath: vods
+    logging:
+      driver: json-file
+      options:
+        max-size: "5g"
+        max-file: "1"
+    networks:
+      -  nf-visionaire
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    command:
+      --enable-cors
+      --access-key DIAC3I4CPS2D7O6IL06GA8PD8
+      --secret-key iyqrJFU_ApSkbhS-OyQX_4IKRfiOwfMjJ0_v4aIx5eSwBAKxocDe8sIRoA2hExiC
+      --deployment-key 4310889e-bccc-42d5-abac-a9424c35043f
+      --db-host={ip}
+      --db-port=5432
+      --db-name=nfv4
+      --db-user=postgres
+      --db-password=nfvisionaire123
+      --fr-address={ip}:4005
+      --fr-keyspace-name=default
+      --fr-anonymous-enable=false
+
+networks:
+  nf-visionaire:
+    external: true
+
+volumes:
+  analytic-volume:
+    external: true

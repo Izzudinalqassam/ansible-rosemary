@@ -1,0 +1,33 @@
+---
+# =====================================================================
+# Tujuan: Replace placeholder {ip} di semua compose files yang sudah di-copy
+# Caller: roles/init_services/tasks/main.yml
+# Side Effects: File I/O (modify compose files di remote server)
+# =====================================================================
+
+- name: Cari semua docker-compose files yang sudah di-copy
+  ansible.builtin.find:
+    paths: "{{ deploy_root }}"
+    patterns:
+      - "docker-compose.yaml"
+      - "docker-compose.yml"
+    recurse: true
+  register: compose_files
+
+- name: "Replace placeholder {ip} → {{ target_ip }}"
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '\{ip\}'
+    replace: "{{ target_ip }}"
+  loop: "{{ compose_files.files }}"
+  loop_control:
+    label: "{{ item.path | regex_replace(deploy_root + '/', '') }}"
+  register: ip_replacements
+
+- name: Tampilkan hasil replacement
+  ansible.builtin.debug:
+    msg: >-
+      IP replacement:
+      {% for result in ip_replacements.results %}
+      {{ result.item.path | regex_replace(deploy_root + '/', '') }}: {{ 'diganti' if result.changed else 'tidak ada placeholder' }}
+      {% endfor %}

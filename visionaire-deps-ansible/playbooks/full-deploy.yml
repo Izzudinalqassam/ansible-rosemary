@@ -1,0 +1,20 @@
+---
+# =====================================================================
+# Tujuan: Full provisioning — jalankan semua tahap secara berurutan
+# Prasyarat: Server Ubuntu 22.04+ dengan akses SSH
+# Jalankan: ansible-playbook playbooks/full-deploy.yml
+# Non-interaktif: ansible-playbook playbooks/full-deploy.yml \
+#                   -e "target_ip=x.x.x.x" \
+#                   -e "optional_services_input=v4,liodra"
+#
+# Urutan eksekusi:
+#   1. install-dependencies.yml  → Install semua dependency
+#   2. verify-dependencies.yml   → Verifikasi (gagal = stop)
+#   3. init-folders.yml          → Buat folder + docker network/volume
+#   4. init-services.yml         → Copy compose + replace IP
+# =====================================================================
+
+- import_playbook: install-dependencies.yml
+- import_playbook: verify-dependencies.yml
+- import_playbook: init-folders.yml
+- import_playbook: init-services.yml

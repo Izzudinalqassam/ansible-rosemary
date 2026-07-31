@@ -1,0 +1,62 @@
+---
+# =====================================================================
+# Tujuan: Deteksi lokasi deployment & validasi input service dari user
+# Caller: roles/init_services/tasks/main.yml
+# Side Effects: None (set_fact saja)
+# =====================================================================
+
+- name: Cek apakah /data ada di server
+  ansible.builtin.stat:
+    path: /data
+  register: data_dir_check
+
+- name: Set deployment root berdasarkan keberadaan /data
+  ansible.builtin.set_fact:
+    deploy_root: "{{ deploy_root_if_data_exists if data_dir_check.stat.exists else deploy_root_if_no_data }}"
+
+- name: Tampilkan lokasi deployment
+  ansible.builtin.debug:
+    msg: "Deployment root: {{ deploy_root }} ({{ '/data ditemukan' if data_dir_check.stat.exists else '/data tidak ada' }})"
+
+# --- Parse input optional services dari user ---
+
+- name: Parse input service opsional dari user
+  ansible.builtin.set_fact:
+    optional_services: "{{ (optional_services_input | default('')) | split(',') | map('trim') | reject('equalto', '') | list }}"
+
+- name: Gabungkan service mandatory + optional
+  ansible.builtin.set_fact:
+    all_services: "{{ mandatory_services + optional_services }}"
+
+- name: Tampilkan daftar service yang akan diinisialisasi
+  ansible.builtin.debug:
+    msg:
+      - "Service wajib   : {{ mandatory_services | join(', ') }}"
+      - "Service opsional: {{ optional_services | join(', ') | default('(tidak ada)', true) }}"
+      - "Total service    : {{ all_services | length }}"
+
+# --- Validasi: pastikan semua service punya template di compose-examples ---
+
+- name: Cek keberadaan compose template untuk setiap service
+  ansible.builtin.stat:
+    path: "{{ compose_examples_path }}/{{ item }}/docker-compose.yaml"
+  loop: "{{ all_services }}"
+  register: compose_template_checks
+  delegate_to: localhost
+  become: false
+
+- name: Kumpulkan service yang template-nya tidak ditemukan
+  ansible.builtin.set_fact:
+    missing_templates: "{{ compose_template_checks.results | selectattr('stat.exists', 'equalto', false) | map(attribute='item') | list }}"
+
+- name: "STOP — template compose tidak ditemukan"
+  ansible.builtin.fail:
+    msg: |
+      ❌ Template docker-compose tidak ditemukan untuk service berikut:
+      {% for svc in missing_templates %}
+        - {{ svc }} (dicari di: compose-examples/{{ svc }}/docker-compose.yaml)
+      {% endfor %}
+
+      Pastikan nama service sesuai dengan folder di compose-examples/.
+      Service yang tersedia: database, dashboard, fremisn-cpu, fremisn-gpu, liodra, qwertex, v4, v4-intel-nuc, v4-offline-analysis
+  when: missing_templates | length > 0

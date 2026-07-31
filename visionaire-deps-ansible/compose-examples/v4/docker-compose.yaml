@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  visionaire4:
+    image: nodefluxio/visionaire4:4.57.57
+    container_name: v4
+    restart: unless-stopped
+    shm_size: 48gb
+    ports:
+      - "4044:4004"
+      - "9090:9090"
+      - "3000:3000"
+      - "3030:3030"
+    extra_hosts:
+      - api.cloud.nodeflux.io:{ip}
+    privileged: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "1g"
+        max-file: "1"
+    networks:
+      - nf-visionaire
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+
+    command:
+      --enable-cors
+      --access-key YCHFQCHCQXSBBPFYDQLLV5S59
+      --secret-key kEprAokhYoRLxa4x5nMAhx9z_Ybi6xRC1gKRkh0GHucyWwT2eK4RH7uKRd5daLW3
+      --deployment-key d259deee-6548-4558-8590-06ee7fc1dcfb
+      --db-host={ip}
+      --db-port=6543
+      --db-name=nfvisionaire
+      --db-user=postgres
+      --db-password=nfvisionaire123
+      --db-disable-event-store
+      --fr-address={ip}:4009
+      --fr-keyspace-name=default
+#      --slave-reconnect-timeout 0
+
+networks:
+  nf-visionaire:
+    external: true

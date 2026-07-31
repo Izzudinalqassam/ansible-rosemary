@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  media-server:
+    image: registry.gitlab.com/nodefluxio/liodra:3.7.1
+    container_name: media-server
+    restart: unless-stopped
+    command: ["--as-nvr",  "--with-vod"]
+    ports:
+      - "9080:9080" # BE Media Server
+      - "8090:8080" # Dashboard Monitoring Media-Server (Internal)
+    logging:
+      driver: json-file
+      options:
+        max-size: "1g"
+        max-file: "1"
+    shm_size: "1gb"
+    networks:
+      - nf-visionaire
+    volumes:
+      - analytic-volume:/usr/share/nginx/html/storage
+
+networks:
+  nf-visionaire:
+    external: true
+
+volumes:
+  analytic-volume:
+    external: true
