@@ -16,6 +16,7 @@
   hosts: visionaire_servers
   gather_facts: false
   become: true
+  tags: [deps]
   tasks:
     - name: Cek apakah python3 sudah ada
       ansible.builtin.raw: which python3 || echo "NOT_FOUND"
@@ -31,6 +32,7 @@
   hosts: visionaire_servers
   become: true
   gather_facts: true
+  tags: [deps]
   roles:
     - nvidia_driver
 
@@ -39,6 +41,7 @@
   hosts: visionaire_servers
   become: true
   gather_facts: true
+  tags: [deps]
   roles:
     - docker
     - nvidia_docker

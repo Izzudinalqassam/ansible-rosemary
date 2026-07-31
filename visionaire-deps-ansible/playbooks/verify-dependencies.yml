@@ -14,5 +14,6 @@
   hosts: visionaire_servers
   become: true
   gather_facts: false
+  tags: [verify]
   roles:
     - verify_deps

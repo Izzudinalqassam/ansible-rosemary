@@ -15,5 +15,6 @@
   hosts: visionaire_servers
   become: true
   gather_facts: false
+  tags: [init-folders]
   roles:
     - init_folders

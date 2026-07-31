@@ -20,6 +20,7 @@
   hosts: visionaire_servers
   become: true
   gather_facts: false
+  tags: [init-services]
 
   vars_prompt:
     - name: target_ip
