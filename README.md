@@ -136,9 +136,11 @@ ansible-rosemary/
 │   ├── inventory/
 │   │   └── hosts.ini.example
 │   ├── playbooks/
-│   │   ├── check_images.yml              ← Cek image (read-only, aman)
-│   │   ├── check_scheduled_restart.yml   ← Cek status --scheduled-restart (read-only)
+│   │   ├── check_images.yml              ← Cek image (read-only)
+│   │   ├── check_scheduled_restart.yml   ← Cek --scheduled-restart (read-only)
+│   │   ├── check_cron_restart.yml        ← Cek cron auto-restart (read-only)
 │   │   ├── compose_update.yml            ← Update + restart (smart skip)
+│   │   ├── cron_restart.yml              ← Kelola cron auto-restart
 │   │   ├── restart_nodes.yml             ← Rolling restart 1 server/waktu
 │   │   └── scheduled_restart.yml         ← Toggle --scheduled-restart
 │   └── roles/
@@ -146,7 +148,8 @@ ansible-rosemary/
 │       ├── 01_update_image/           ← Replace image (skip jika sama)
 │       ├── 02_restart_compose/        ← Restart (hanya node berubah)
 │       ├── 03_restart_node/           ← Restart semua node per server
-│       └── 04_scheduled_restart/      ← Toggle --scheduled-restart
+│       ├── 04_scheduled_restart/      ← Toggle --scheduled-restart
+│       └── 05_cron_restart/           ← Kelola cron auto-restart
 │
 └── ansible-swap-increase/             ← [4] Upgrade swap memory
     ├── readme.md
@@ -250,7 +253,21 @@ ansible-playbook playbooks/check_scheduled_restart.yml
 ansible-playbook playbooks/check_scheduled_restart.yml --limit server01,server05
 ```
 
----
+#### ⏰ Cron Auto-Restart Node
+
+Buat cron job harian untuk auto-restart (down & up) compose node. Waktu staggered per node (selang 5 menit).
+
+```bash
+# Enable cron di semua server
+ansible-playbook playbooks/cron_restart.yml
+
+# Disable (hapus cron)
+ansible-playbook playbooks/cron_restart.yml -e "cron_restart_action=disable"
+
+# Validasi: cek status cron (read-only)
+ansible-playbook playbooks/check_cron_restart.yml
+```
+
 
 ### 4. `ansible-swap-increase` — Upgrade Swap Memory
 

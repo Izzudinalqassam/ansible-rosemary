@@ -61,7 +61,9 @@ ansible-compose-update/
 ├── playbooks/
 │   ├── check_images.yml             ← Cek image (read-only, aman)
 │   ├── check_scheduled_restart.yml   ← Cek status --scheduled-restart (read-only)
+│   ├── check_cron_restart.yml        ← Cek status cron auto-restart (read-only)
 │   ├── compose_update.yml           ← Update + restart (smart skip)
+│   ├── cron_restart.yml             ← Kelola cron auto-restart (enable/disable)
 │   ├── restart_nodes.yml            ← Rolling restart 1 server/waktu, jeda 2 menit
 │   └── scheduled_restart.yml        ← Toggle --scheduled-restart (enable/disable)
 └── roles/
@@ -73,7 +75,9 @@ ansible-compose-update/
     │   └── tasks/main.yml
     ├── 03_restart_node/         ← Role: restart semua node per server
     │   └── tasks/main.yml
-    └── 04_scheduled_restart/    ← Role: toggle --scheduled-restart
+    ├── 04_scheduled_restart/    ← Role: toggle --scheduled-restart
+    │   └── tasks/main.yml
+    └── 05_cron_restart/         ← Role: kelola cron auto-restart
         └── tasks/main.yml
 ```
 
@@ -258,6 +262,60 @@ Output per node:
 - ✅ **ACTIVE** — `--scheduled-restart` ada dan aktif (beserta nilainya)
 - 💤 **COMMENTED** — ada tapi di-comment (`#`)
 - ❌ **ABSENT** — belum ada sama sekali
+
+---
+
+### ⏰ Cron Auto-Restart Node (enable / disable)
+
+Buat cron job di setiap server untuk auto-restart (`docker-compose restart`) compose node setiap hari.
+Waktu di-stagger otomatis per node (selang 2 menit berdasarkan nomor node):
+
+| Node | Waktu Cron (default) |
+|---|---|
+| node-1 | `02:00` setiap hari |
+| node-2 | `02:02` setiap hari |
+| node-3 | `02:04` setiap hari |
+| ... | +2 menit per node |
+| node-26 | `02:50` setiap hari |
+
+```bash
+# Enable cron di SEMUA server (base 02:00, interval 5 menit)
+ansible-playbook playbooks/cron_restart.yml
+
+# Enable di server tertentu
+ansible-playbook playbooks/cron_restart.yml --limit server01,server05
+
+# Disable (hapus cron) di SEMUA server
+ansible-playbook playbooks/cron_restart.yml -e "cron_restart_action=disable"
+
+# Disable di server tertentu
+ansible-playbook playbooks/cron_restart.yml -e "cron_restart_action=disable" --limit server02
+
+# Custom base time & interval
+ansible-playbook playbooks/cron_restart.yml \
+  -e "cron_restart_base_hour=3" \
+  -e "cron_restart_base_minute=0" \
+  -e "cron_restart_interval=10"
+
+# Dry-run
+ansible-playbook playbooks/cron_restart.yml --check --diff
+```
+
+> ⏰ Cron job melakukan `docker-compose restart`. Log tersimpan di `/var/log/cron-compose-restart.log` pada setiap server.
+
+---
+
+### 🔍 Cek Status Cron Auto-Restart (read-only)
+
+Validasi apakah cron auto-restart sudah terpasang di setiap node.
+
+```bash
+# Cek semua server
+ansible-playbook playbooks/check_cron_restart.yml
+
+# Cek server tertentu
+ansible-playbook playbooks/check_cron_restart.yml --limit server01,server05
+```
 
 ---
 

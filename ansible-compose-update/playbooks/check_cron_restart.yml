@@ -1,0 +1,68 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Playbook    : check_cron_restart.yml
+# Tujuan      : Cek status cron auto-restart di semua server (read-only)
+# Caller      : User (CLI)
+# Dependensi  : compose_nodes (inventory), compose_base_dir
+# Side Effects: None (read-only, tidak mengubah apapun)
+#
+# Cara pakai:
+#   Cek semua server:
+#     ansible-playbook playbooks/check_cron_restart.yml
+#
+#   Cek server tertentu:
+#     ansible-playbook playbooks/check_cron_restart.yml --limit server01,server05
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: "🔍 Cek Status Cron Auto-Restart"
+  hosts: servers
+  become: true
+  gather_facts: false
+  serial: 13
+
+  vars:
+    compose_base_dir: "/data/compose"
+
+  tasks:
+    # ─── Parse node list ───────────────────────────────────────────────────────
+    - name: Set node list dari inventory
+      ansible.builtin.set_fact:
+        node_list: "{{ compose_nodes.split(',') }}"
+
+    - name: "📋 Nodes di {{ inventory_hostname }}"
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} ({{ ansible_host }}) → {{ node_list | join(', ') }}"
+
+    # ─── Cek cron entries ──────────────────────────────────────────────────────
+    - name: Cek cron auto-restart per node
+      ansible.builtin.shell: |
+        entry=$(crontab -l 2>/dev/null | grep "auto-restart-{{ item }}" || true)
+        if [ -n "$entry" ]; then
+          minute=$(echo "$entry" | awk '{print $1}')
+          hour=$(echo "$entry" | awk '{print $2}')
+          printf '✅ ACTIVE → %02d:%02d setiap hari' "$hour" "$minute"
+        else
+          echo "❌ ABSENT → tidak ada cron auto-restart"
+        fi
+      register: cron_check
+      changed_when: false
+      loop: "{{ node_list }}"
+
+    - name: "⏰ Status cron per node"
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}/{{ item.item }} | {{ item.stdout }}"
+      loop: "{{ cron_check.results }}"
+
+    # ─── Ringkasan per server ──────────────────────────────────────────────────
+    - name: Hitung ringkasan
+      ansible.builtin.set_fact:
+        count_active: "{{ cron_check.results | map(attribute='stdout') | select('search', 'ACTIVE') | list | length }}"
+        count_absent: "{{ cron_check.results | map(attribute='stdout') | select('search', 'ABSENT') | list | length }}"
+
+    - name: "📊 Ringkasan {{ inventory_hostname }}"
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} |
+          ✅ Active: {{ count_active }},
+          ❌ Absent: {{ count_absent }}
+          (total {{ node_list | length }} node)

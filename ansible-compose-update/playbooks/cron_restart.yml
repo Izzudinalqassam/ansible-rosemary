@@ -1,0 +1,48 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Playbook    : cron_restart.yml
+# Tujuan      : Buat/hapus cron job untuk auto-restart (down & up) compose node
+#               harian pada waktu staggered per node
+# Caller      : User (CLI)
+# Dependensi  : roles/05_cron_restart
+# Side Effects: Buat/hapus cron entry di root crontab pada remote server
+#
+# Cara pakai:
+#   ENABLE cron di SEMUA server (default base 02:00, interval 5 menit):
+#     ansible-playbook playbooks/cron_restart.yml
+#
+#   ENABLE di server tertentu:
+#     ansible-playbook playbooks/cron_restart.yml --limit server01,server05
+#
+#   DISABLE (hapus cron) di SEMUA server:
+#     ansible-playbook playbooks/cron_restart.yml -e "cron_restart_action=disable"
+#
+#   DISABLE di server tertentu:
+#     ansible-playbook playbooks/cron_restart.yml -e "cron_restart_action=disable" --limit server02
+#
+#   Custom base time & interval:
+#     ansible-playbook playbooks/cron_restart.yml \
+#       -e "cron_restart_base_hour=3" \
+#       -e "cron_restart_base_minute=0" \
+#       -e "cron_restart_interval=10"
+#
+#   Dry-run:
+#     ansible-playbook playbooks/cron_restart.yml --check --diff
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: "⏰ Kelola Cron Auto-Restart Compose Node"
+  hosts: servers
+  become: true
+  gather_facts: false
+  serial: 13
+  max_fail_percentage: 0
+
+  vars:
+    compose_base_dir: "/data/compose"
+    cron_restart_action: "enable"                # enable | disable
+    cron_restart_base_hour: 2                    # jam mulai (default: 02)
+    cron_restart_base_minute: 0                  # menit mulai (default: 00)
+    cron_restart_interval: 2                     # interval menit antar node
+
+  roles:
+    - 05_cron_restart

@@ -1,0 +1,98 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Role       : 05_cron_restart
+# Tujuan     : Buat/hapus cron job untuk auto-restart (down & up) compose node
+#              harian pada waktu staggered per node (interval 5 menit)
+# Caller     : playbooks/cron_restart.yml
+# Dependensi : compose_nodes (inventory), compose_base_dir
+# Main Vars  : cron_restart_action (enable|disable),
+#              cron_restart_base_hour, cron_restart_base_minute,
+#              cron_restart_interval
+# Side Effects: Buat/hapus cron entry di root crontab
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── Parse node list dari inventory ──────────────────────────────────────────
+- name: Set node list dari inventory
+  ansible.builtin.set_fact:
+    node_list: "{{ compose_nodes.split(',') }}"
+
+- name: "📋 Node target di {{ inventory_hostname }}"
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} ({{ ansible_host }}) → {{ node_list | join(', ') }}
+      | Action: {{ cron_restart_action }}
+
+# ─── Hitung waktu cron per node (staggered) ──────────────────────────────────
+- name: Hitung waktu cron per node
+  ansible.builtin.shell: |
+    node_num=$(echo "{{ item }}" | grep -oP '\d+$' | awk '{print $1+0}')
+    base_total_min=$(( {{ cron_restart_base_hour | int }} * 60 + {{ cron_restart_base_minute | int }} ))
+    offset=$(( (node_num - 1) * {{ cron_restart_interval | int }} ))
+    total=$(( base_total_min + offset ))
+    h=$(( total / 60 ))
+    m=$(( total % 60 ))
+    echo "$h $m"
+  register: node_cron_times_raw
+  changed_when: false
+  loop: "{{ node_list }}"
+  when: cron_restart_action == 'enable'
+
+- name: Build cron time map
+  ansible.builtin.set_fact:
+    node_cron_map: >-
+      {{ node_cron_map | default({}) | combine({
+        item.item: {
+          'hour': item.stdout.split()[0],
+          'minute': item.stdout.split()[1]
+        }
+      }) }}
+  loop: "{{ node_cron_times_raw.results }}"
+  when: cron_restart_action == 'enable'
+
+- name: "⏰ Jadwal cron per node"
+  ansible.builtin.debug:
+    msg: "⏰ {{ inventory_hostname }}/{{ item.key }} → {{ item.value.hour | int }}:{{ '%02d' | format(item.value.minute | int) }} setiap hari"
+  loop: "{{ node_cron_map | default({}) | dict2items }}"
+  when: cron_restart_action == 'enable'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENABLE: buat cron job per node
+# ═══════════════════════════════════════════════════════════════════════════════
+- name: "➕ Buat cron job auto-restart {{ item }}"
+  ansible.builtin.cron:
+    name: "auto-restart-{{ item }}"
+    minute: "{{ node_cron_map[item].minute }}"
+    hour: "{{ node_cron_map[item].hour }}"
+    day: "*"
+    month: "*"
+    weekday: "*"
+    user: root
+    job: >-
+      (echo "--- $(date) restart {{ item }} ---" &&
+      cd {{ compose_base_dir }}/{{ item }} &&
+      docker-compose restart)
+      >> /var/log/cron-compose-restart.log 2>&1
+  loop: "{{ node_list }}"
+  when: cron_restart_action == 'enable'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DISABLE: hapus cron job per node
+# ═══════════════════════════════════════════════════════════════════════════════
+- name: "🗑️  Hapus cron job auto-restart {{ item }}"
+  ansible.builtin.cron:
+    name: "auto-restart-{{ item }}"
+    user: root
+    state: absent
+  loop: "{{ node_list }}"
+  when: cron_restart_action == 'disable'
+
+# ─── Verifikasi cron ─────────────────────────────────────────────────────────
+- name: Verifikasi cron entries
+  ansible.builtin.shell: |
+    crontab -l 2>/dev/null | grep 'auto-restart' || echo "(tidak ada cron auto-restart)"
+  register: cron_verify
+  changed_when: false
+
+- name: "✅ Cron entries di {{ inventory_hostname }}"
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }}:\n{{ cron_verify.stdout }}"
