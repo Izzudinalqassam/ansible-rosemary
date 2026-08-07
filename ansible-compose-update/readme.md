@@ -199,11 +199,11 @@ Waktu di-stagger otomatis per node (selang 5 menit berdasarkan nomor node):
 
 | Node | Waktu (default) |
 |---|---|
-| node-1 | `02:00:0` |
-| node-2 | `02:05:0` |
-| node-3 | `02:10:0` |
+| node-1 | `02:00:00` |
+| node-2 | `02:05:00` |
+| node-3 | `02:10:00` |
 | ... | +5 menit per node |
-| node-26 | `04:05:0` |
+| node-26 | `04:05:00` |
 
 **Playbook berjalan 2 fase:**
 1. **PHASE 1** — Edit docker-compose.yaml (semua server paralel)

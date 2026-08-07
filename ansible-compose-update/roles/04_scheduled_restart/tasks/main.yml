@@ -44,7 +44,7 @@
     total=$(( base_total_min + offset ))
     h=$(( total / 60 ))
     m=$(( total % 60 ))
-    printf '%02d:%02d:0' "$h" "$m"
+    printf '%02d:%02d:00' "$h" "$m"
   register: node_times_raw
   changed_when: false
   loop: "{{ node_list }}"
