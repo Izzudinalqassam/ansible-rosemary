@@ -36,7 +36,7 @@
     # ─── Cek cron entries ──────────────────────────────────────────────────────
     - name: Cek cron auto-restart per node
       ansible.builtin.shell: |
-        entry=$(crontab -l 2>/dev/null | grep "auto-restart-{{ item }}" | grep -v '^#' || true)
+        entry=$(crontab -u root -l 2>/dev/null | grep -A1 -F "auto-restart-{{ item }}" | grep -v '^#' | grep -v '^--' | head -n1 || true)
         if [ -n "$entry" ]; then
           minute=$(echo "$entry" | awk '{print $1}')
           hour=$(echo "$entry" | awk '{print $2}')

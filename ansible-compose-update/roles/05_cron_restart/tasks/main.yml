@@ -89,7 +89,7 @@
 # ─── Verifikasi cron ─────────────────────────────────────────────────────────
 - name: Verifikasi cron entries
   ansible.builtin.shell: |
-    crontab -l 2>/dev/null | grep 'auto-restart' || echo "(tidak ada cron auto-restart)"
+    crontab -u root -l 2>/dev/null | grep 'auto-restart' || echo "(tidak ada cron auto-restart)"
   register: cron_verify
   changed_when: false
 
