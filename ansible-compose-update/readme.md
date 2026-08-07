@@ -268,15 +268,15 @@ Output per node:
 ### ⏰ Cron Auto-Restart Node (enable / disable)
 
 Buat cron job di setiap server untuk auto-restart (`docker-compose restart`) compose node setiap hari.
-Waktu di-stagger otomatis per node (selang 2 menit berdasarkan nomor node):
+Waktu di-stagger otomatis per node (selang 5 menit berdasarkan nomor node):
 
 | Node | Waktu Cron (default) |
 |---|---|
 | node-1 | `02:00` setiap hari |
-| node-2 | `02:02` setiap hari |
-| node-3 | `02:04` setiap hari |
-| ... | +2 menit per node |
-| node-26 | `02:50` setiap hari |
+| node-2 | `02:05` setiap hari |
+| node-3 | `02:10` setiap hari |
+| ... | +5 menit per node |
+| node-26 | `04:05` setiap hari |
 
 ```bash
 # Enable cron di SEMUA server (base 02:00, interval 5 menit)

@@ -42,7 +42,7 @@
     cron_restart_action: "enable"                # enable | disable
     cron_restart_base_hour: 2                    # jam mulai (default: 02)
     cron_restart_base_minute: 0                  # menit mulai (default: 00)
-    cron_restart_interval: 2                     # interval menit antar node
+    cron_restart_interval: 5                     # interval menit antar node
 
   roles:
     - 05_cron_restart
