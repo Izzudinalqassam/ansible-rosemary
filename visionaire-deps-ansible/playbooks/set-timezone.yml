@@ -1,0 +1,17 @@
+---
+# =====================================================================
+# Tujuan: Cek & set timezone server ke Asia/Jakarta (WIB, +0700)
+# Prasyarat: Server Ubuntu 22.04+ dengan akses SSH
+# Jalankan: ansible-playbook playbooks/set-timezone.yml
+# Side Effects: Ubah timezone sistem secara permanen
+#
+# Jika timezone sudah Asia/Jakarta, tidak ada perubahan (idempotent).
+# =====================================================================
+
+- name: "Set Timezone ke Asia/Jakarta (WIB)"
+  hosts: visionaire_servers
+  become: true
+  gather_facts: false
+  tags: [timezone]
+  roles:
+    - set_timezone

@@ -1,0 +1,43 @@
+---
+# =====================================================================
+# Tujuan: Cek & set timezone server ke Asia/Jakarta (WIB, +0700)
+# Caller: playbooks/set-timezone.yml
+# Side Effects: Ubah timezone sistem secara permanen via timedatectl
+# =====================================================================
+
+- name: Cek timezone saat ini
+  ansible.builtin.command: timedatectl show --property=Timezone --value
+  register: current_tz
+  changed_when: false
+
+- name: Info timezone saat ini
+  ansible.builtin.debug:
+    msg: "Timezone saat ini: {{ current_tz.stdout | trim }}"
+
+- name: Set timezone ke Asia/Jakarta (WIB, +0700)
+  ansible.builtin.command: timedatectl set-timezone Asia/Jakarta
+  when: current_tz.stdout | trim != "Asia/Jakarta"
+
+- name: Verifikasi timezone setelah perubahan
+  ansible.builtin.command: timedatectl show --property=Timezone --value
+  register: verify_tz
+  changed_when: false
+  when: current_tz.stdout | trim != "Asia/Jakarta"
+
+- name: Pastikan timezone sudah benar
+  ansible.builtin.assert:
+    that:
+      - (verify_tz.stdout | default(current_tz.stdout)) | trim == "Asia/Jakarta"
+    fail_msg: "❌ Gagal set timezone ke Asia/Jakarta. Timezone sekarang: {{ (verify_tz.stdout | default(current_tz.stdout)) | trim }}"
+    success_msg: "✅ Timezone sudah Asia/Jakarta (WIB, +0700)"
+
+- name: Hasil
+  ansible.builtin.debug:
+    msg:
+      - "===================================================="
+      - "TIMEZONE — {{ inventory_hostname }}"
+      - "===================================================="
+      - "Sebelum : {{ current_tz.stdout | trim }}"
+      - "Sesudah : Asia/Jakarta (WIB, +0700)"
+      - "Status  : {{ '🔄 Diubah' if current_tz.stdout | trim != 'Asia/Jakarta' else '✅ Sudah benar, tidak ada perubahan' }}"
+      - "===================================================="

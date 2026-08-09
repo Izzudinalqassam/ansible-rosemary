@@ -1,8 +1,8 @@
 # Ansible — Provisioning Server VisionAIre
 
 Playbook Ansible untuk **provisioning otomatis** server VisionAIre di Ubuntu 22.04+.
-Mencakup instalasi dependencies, verifikasi, dan inisialisasi service — sampai siap
-dijalankan dengan `docker-compose up`.
+Mencakup setting timezone, instalasi dependencies, verifikasi, dan inisialisasi
+service — sampai siap dijalankan dengan `docker-compose up`.
 
 ---
 
@@ -16,11 +16,12 @@ dijalankan dengan `docker-compose up`.
   - [Variables — Kredensial dan Konfigurasi](#variables--kredensial-dan-konfigurasi)
 - [Struktur Direktori](#struktur-direktori)
 - [Daftar Playbook](#daftar-playbook)
-  - [install-dependencies.yml](#1-install-dependenciesyml)
-  - [verify-dependencies.yml](#2-verify-dependenciesyml)
-  - [init-folders.yml](#3-init-foldersyml)
-  - [init-services.yml](#4-init-servicesyml)
-  - [full-deploy.yml](#5-full-deployyml)
+  - [set-timezone.yml](#1-set-timezoneyml)
+  - [install-dependencies.yml](#2-install-dependenciesyml)
+  - [verify-dependencies.yml](#3-verify-dependenciesyml)
+  - [init-folders.yml](#4-init-foldersyml)
+  - [init-services.yml](#5-init-servicesyml)
+  - [full-deploy.yml](#6-full-deployyml)
 - [Service yang Tersedia](#service-yang-tersedia)
 - [Lokasi Deployment di Server](#lokasi-deployment-di-server)
 - [Contoh Workflow](#contoh-workflow)
@@ -33,16 +34,17 @@ dijalankan dengan `docker-compose up`.
 ## Tentang Project
 
 Project ini mengotomasi seluruh proses penyiapan server untuk menjalankan
-VisionAIre. Terdiri dari **5 playbook** yang bisa dijalankan secara terpisah
+VisionAIre. Terdiri dari **6 playbook** yang bisa dijalankan secara terpisah
 maupun berurutan:
 
 | Tahap | Playbook | Fungsi |
 |-------|----------|--------|
-| 1 | `install-dependencies.yml` | Install NVIDIA driver, Docker, docker-compose |
-| 2 | `verify-dependencies.yml` | Verifikasi semua dependency terinstall |
-| 3 | `init-folders.yml` | Buat folder deployment + docker network/volume |
-| 4 | `init-services.yml` | Copy compose files + replace IP |
-| 5 | `full-deploy.yml` | Jalankan tahap 1–4 secara berurutan |
+| 1 | `set-timezone.yml` | Set timezone ke Asia/Jakarta (WIB) |
+| 2 | `install-dependencies.yml` | Install NVIDIA driver, Docker, docker-compose |
+| 3 | `verify-dependencies.yml` | Verifikasi semua dependency terinstall |
+| 4 | `init-folders.yml` | Buat folder deployment + docker network/volume |
+| 5 | `init-services.yml` | Copy compose files + replace IP |
+| 6 | `full-deploy.yml` | Jalankan tahap 1–5 secara berurutan |
 
 Container **tidak di-start** oleh Ansible — user menjalankan `docker-compose up`
 secara manual untuk mengurangi risiko kesalahan saat deployment.
@@ -90,7 +92,7 @@ cd visionaire-deps-ansible
 nano inventory/hosts.ini
 
 # 3. Edit kredensial
-nano group_vars/all.yml
+nano inventory/group_vars/all.yml
 
 # 4. Jalankan full provisioning
 ansible-playbook playbooks/full-deploy.yml
@@ -129,11 +131,11 @@ node-01 ansible_host=192.168.100.1 ansible_user=ubuntu
 ```
 
 Kalau semua server pakai user dan password yang sama, cukup atur sekali di
-`group_vars/all.yml` — tidak perlu ditulis berulang di tiap baris.
+`inventory/group_vars/all.yml` — tidak perlu ditulis berulang di tiap baris.
 
 ### Variables — Kredensial dan Konfigurasi
 
-File: `group_vars/all.yml`
+File: `inventory/group_vars/all.yml`
 
 | Variable | Keterangan | Contoh |
 |----------|-----------|--------|
@@ -163,6 +165,7 @@ visionaire-deps-ansible/
 ├── site.yml                       # Wrapper (backward compatibility)
 │
 ├── playbooks/                     # ← PLAYBOOK (jalankan dari sini)
+│   ├── set-timezone.yml           #   Set timezone ke Asia/Jakarta
 │   ├── install-dependencies.yml   #   Install semua dependency
 │   ├── verify-dependencies.yml    #   Verifikasi dependency
 │   ├── init-folders.yml           #   Buat folder + docker prereqs
@@ -170,12 +173,12 @@ visionaire-deps-ansible/
 │   └── full-deploy.yml            #   Jalankan semua tahap
 │
 ├── inventory/
-│   └── hosts.ini                  # ← EDIT: daftar IP server
-│
-├── group_vars/
-│   └── all.yml                    # ← EDIT: kredensial & konfigurasi
+│   ├── hosts.ini                  # ← EDIT: daftar IP server
+│   └── group_vars/
+│       └── all.yml                # ← EDIT: kredensial & konfigurasi
 │
 ├── roles/                         # Logic Ansible (tidak perlu diedit)
+│   ├── set_timezone/              #   Set timezone Asia/Jakarta
 │   ├── nvidia_driver/             #   Install NVIDIA driver + reboot
 │   ├── docker/                    #   Install Docker CE + atur data-root
 │   │   └── templates/daemon.json.j2
@@ -212,7 +215,62 @@ visionaire-deps-ansible/
 > **Penting:** Selalu jalankan command dari **root directory project**
 > (`visionaire-deps-ansible/`), bukan dari dalam folder `playbooks/`.
 
-### 1. `install-dependencies.yml`
+### 1. `set-timezone.yml`
+
+**Tujuan:** Set timezone server ke **Asia/Jakarta (WIB, +0700)** secara permanen.
+
+**Kapan digunakan:**
+- Server baru yang timezone-nya masih UTC atau bukan WIB.
+- Sebelum install dependencies, agar semua log dan cron job pakai waktu WIB.
+
+**Apa yang dilakukan:**
+1. Cek timezone saat ini via `timedatectl`
+2. Jika belum `Asia/Jakarta`, set timezone secara permanen
+3. Verifikasi timezone sudah benar setelah perubahan
+
+**Prasyarat:**
+- Server sudah bisa diakses via SSH
+
+**Command:**
+
+```bash
+# Semua server
+ansible-playbook playbooks/set-timezone.yml
+
+# Server tertentu
+ansible-playbook playbooks/set-timezone.yml --limit 192.168.100.1
+
+# Via tag (lewat full-deploy atau site.yml)
+ansible-playbook site.yml --tags timezone
+```
+
+**Output yang diharapkan:**
+
+Jika timezone diubah:
+```
+====================================================
+TIMEZONE — 192.168.100.1
+====================================================
+Sebelum : UTC
+Sesudah : Asia/Jakarta (WIB, +0700)
+Status  : 🔄 Diubah
+====================================================
+```
+
+Jika timezone sudah benar:
+```
+====================================================
+TIMEZONE — 192.168.100.1
+====================================================
+Sebelum : Asia/Jakarta
+Sesudah : Asia/Jakarta (WIB, +0700)
+Status  : ✅ Sudah benar, tidak ada perubahan
+====================================================
+```
+
+---
+
+### 2. `install-dependencies.yml`
 
 **Tujuan:** Install seluruh dependency yang dibutuhkan VisionAIre.
 
@@ -227,7 +285,7 @@ visionaire-deps-ansible/
 
 **Prasyarat:**
 - Server sudah bisa diakses via SSH
-- `inventory/hosts.ini` dan `group_vars/all.yml` sudah dikonfigurasi
+- `inventory/hosts.ini` dan `inventory/group_vars/all.yml` sudah dikonfigurasi
 
 **Command:**
 
@@ -253,7 +311,7 @@ ansible-playbook playbooks/install-dependencies.yml --check --diff
 
 ---
 
-### 2. `verify-dependencies.yml`
+### 3. `verify-dependencies.yml`
 
 **Tujuan:** Verifikasi semua dependency sudah terinstall dengan benar.
 
@@ -305,7 +363,7 @@ Jika ada yang gagal — proses dihentikan dengan pesan error yang jelas.
 
 ---
 
-### 3. `init-folders.yml`
+### 4. `init-folders.yml`
 
 **Tujuan:** Inisialisasi folder deployment dan docker prerequisites.
 
@@ -348,7 +406,7 @@ Volume     : analytic-volume ✅
 
 ---
 
-### 4. `init-services.yml`
+### 5. `init-services.yml`
 
 **Tujuan:** Copy compose files dari `compose-examples/` dan replace placeholder IP.
 
@@ -419,7 +477,7 @@ Service opsional: v4, liodra
 
 ---
 
-### 5. `full-deploy.yml`
+### 6. `full-deploy.yml`
 
 **Tujuan:** Jalankan seluruh proses provisioning dari awal sampai akhir.
 
@@ -428,14 +486,15 @@ Service opsional: v4, liodra
 - Ingin satu command untuk semua tahap
 
 **Apa yang dilakukan:**
-1. Install dependencies (`install-dependencies.yml`)
-2. Verifikasi (`verify-dependencies.yml`) — gagal = stop
-3. Init folders (`init-folders.yml`)
-4. Init services (`init-services.yml`) — prompt IP + services
+1. Set timezone ke Asia/Jakarta (`set-timezone.yml`)
+2. Install dependencies (`install-dependencies.yml`)
+3. Verifikasi (`verify-dependencies.yml`) — gagal = stop
+4. Init folders (`init-folders.yml`)
+5. Init services (`init-services.yml`) — prompt IP + services
 
 **Prasyarat:**
 - Server Ubuntu 22.04+ dengan akses SSH
-- `inventory/hosts.ini` dan `group_vars/all.yml` sudah dikonfigurasi
+- `inventory/hosts.ini` dan `inventory/group_vars/all.yml` sudah dikonfigurasi
 
 **Command:**
 
@@ -521,11 +580,13 @@ Contoh struktur yang dihasilkan:
 
 ### Workflow 1: Deploy Penuh (Server Baru)
 
-```
+```bash
 ansible-playbook playbooks/full-deploy.yml
 ```
 
 ```
+set-timezone.yml
+        ↓
 install-dependencies.yml
         ↓
 verify-dependencies.yml → gagal? STOP ❌
@@ -537,7 +598,15 @@ init-services.yml (prompt IP + services)
 ✅ Selesai — jalankan docker-compose up secara manual
 ```
 
-### Workflow 2: Install Dependencies Saja
+### Workflow 2: Set Timezone Saja
+
+```bash
+ansible-playbook playbooks/set-timezone.yml
+```
+
+Berguna jika hanya ingin menyamakan timezone semua server ke WIB tanpa install apapun.
+
+### Workflow 3: Install Dependencies Saja
 
 ```bash
 ansible-playbook playbooks/install-dependencies.yml
@@ -545,7 +614,7 @@ ansible-playbook playbooks/install-dependencies.yml
 
 Berguna jika hanya ingin menyiapkan dependency tanpa deploy service.
 
-### Workflow 3: Install + Verifikasi
+### Workflow 4: Install + Verifikasi
 
 ```bash
 ansible-playbook playbooks/install-dependencies.yml
@@ -554,7 +623,7 @@ ansible-playbook playbooks/verify-dependencies.yml
 
 Berguna untuk memastikan instalasi berhasil sebelum lanjut ke tahap berikutnya.
 
-### Workflow 4: Inisialisasi Folder Saja
+### Workflow 5: Inisialisasi Folder Saja
 
 ```bash
 ansible-playbook playbooks/init-folders.yml
@@ -562,7 +631,7 @@ ansible-playbook playbooks/init-folders.yml
 
 Berguna jika dependency sudah terinstall dan hanya ingin menyiapkan struktur folder.
 
-### Workflow 5: Tambah Service Baru ke Server yang Sudah Ada
+### Workflow 6: Tambah Service Baru ke Server yang Sudah Ada
 
 ```bash
 ansible-playbook playbooks/init-services.yml \
@@ -572,7 +641,7 @@ ansible-playbook playbooks/init-services.yml \
 
 Berguna jika server sudah berjalan dan ingin menambah service baru.
 
-### Workflow 6: Non-Interaktif (CI/CD)
+### Workflow 7: Non-Interaktif (CI/CD)
 
 ```bash
 ansible-playbook playbooks/full-deploy.yml \
@@ -592,9 +661,32 @@ Semua parameter di-pass via `-e`, tidak ada prompt interaktif.
 |------|--------|--------|
 | `--limit` | Jalankan hanya pada server tertentu | `--limit 192.168.100.1` |
 | `--limit` | Beberapa server sekaligus | `--limit "192.168.100.1,192.168.100.2"` |
+| `--tags` | Jalankan hanya play dengan tag tertentu | `--tags timezone` |
 | `-e` | Pass variable tanpa prompt | `-e "target_ip=192.168.100.1"` |
 | `--check` | Dry run (tidak eksekusi) | `--check --diff` |
 | `-v` / `-vv` / `-vvv` | Verbose output (makin banyak `v` = makin detail) | `-vv` |
+
+### Daftar Tags
+
+| Tag | Play yang dijalankan |
+|-----|---------------------|
+| `timezone` | Set timezone ke Asia/Jakarta |
+| `deps` | Install semua dependency |
+| `verify` | Verifikasi dependency |
+| `init-folders` | Inisialisasi folder deployment |
+| `init-services` | Copy compose + replace IP |
+
+Contoh penggunaan tag:
+```bash
+# Hanya set timezone
+ansible-playbook site.yml --tags timezone
+
+# Hanya verifikasi
+ansible-playbook site.yml --tags verify
+
+# Timezone + install deps
+ansible-playbook site.yml --tags timezone,deps
+```
 
 ### Cheat Sheet
 
@@ -615,6 +707,9 @@ ansible-playbook playbooks/full-deploy.yml \
   -e "optional_services_input=v4"
 
 # === PER TAHAP ===
+# Set timezone
+ansible-playbook playbooks/set-timezone.yml
+
 # Install dependencies
 ansible-playbook playbooks/install-dependencies.yml
 
@@ -631,6 +726,16 @@ ansible-playbook playbooks/init-services.yml
 ansible-playbook playbooks/init-services.yml \
   -e "target_ip=192.168.100.1" \
   -e "optional_services_input=v4,liodra"
+
+# === VIA TAGS ===
+# Timezone saja
+ansible-playbook site.yml --tags timezone
+
+# Verifikasi saja
+ansible-playbook site.yml --tags verify
+
+# Timezone + deps + verifikasi
+ansible-playbook site.yml --tags timezone,deps,verify
 
 # === UTILITAS ===
 # Dry run (lihat apa yang akan berubah tanpa eksekusi)
@@ -684,8 +789,15 @@ cd /data/deployments/dashboard && docker-compose up -d
 ### Apakah aman dijalankan berkali-kali?
 
 **Ya.** Semua playbook bersifat **idempotent** — setiap step dicek dulu sebelum
-dieksekusi. Kalau dependency sudah terinstall atau folder sudah ada, task otomatis
-di-skip (`changed=0`). Aman dijalankan ulang kapan saja.
+dieksekusi. Kalau dependency sudah terinstall, timezone sudah benar, atau folder
+sudah ada, task otomatis di-skip (`changed=0`). Aman dijalankan ulang kapan saja.
+
+### Error "Permission denied (publickey,password)"?
+
+Kemungkinan Ansible tidak baca file kredensial. Pastikan:
+1. File `inventory/group_vars/all.yml` ada dan berisi `ansible_ssh_pass`
+2. Jalankan command dari root directory project (`visionaire-deps-ansible/`)
+3. Cek koneksi manual: `ansible visionaire_servers -m ping`
 
 ### Error koneksi SSH pertama kali?
 
@@ -711,6 +823,9 @@ ansible-playbook playbooks/full-deploy.yml --limit 192.168.100.2
 # Test koneksi
 ansible visionaire_servers -m ping
 
+# Cek timezone
+ansible visionaire_servers -m command -a "timedatectl show --property=Timezone --value"
+
 # Cek docker
 ansible visionaire_servers -m command -a "docker info | head -20"
 
@@ -725,6 +840,9 @@ ansible visionaire_servers -m command -a "nvidia-smi"
 
 ```bash
 ssh ubuntu@192.168.100.1
+
+# Cek timezone
+timedatectl
 
 # Cek docker
 docker info | grep "Docker Root Dir"
