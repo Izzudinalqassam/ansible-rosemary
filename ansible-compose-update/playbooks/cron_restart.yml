@@ -40,7 +40,7 @@
   vars:
     compose_base_dir: "/data/compose"
     cron_restart_action: "enable"                # enable | disable
-    cron_restart_base_hour: 2                    # jam mulai (default: 02)
+    cron_restart_base_hour: 19                    # jam mulai (default: 02)
     cron_restart_base_minute: 0                  # menit mulai (default: 00)
     cron_restart_interval: 5                     # interval menit antar node
 

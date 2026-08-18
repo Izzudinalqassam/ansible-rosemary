@@ -69,8 +69,10 @@
     user: root
     job: >-
       (echo "--- $(date) restart {{ item }} ---" &&
-      cd {{ compose_base_dir }}/{{ item }} &&
-      docker-compose restart)
+      container=$(docker ps --filter "name=visionaire" --format "{{ '{{' }}.Names{{ '}}' }}" | grep -E "node-$(echo {{ item }} | grep -oP '\d+$')$" | head -n1) &&
+      [ -n "$container" ] &&
+      echo "  → docker restart $container" &&
+      docker restart "$container")
       >> /var/log/cron-compose-restart.log 2>&1
   loop: "{{ node_list }}"
   when: cron_restart_action == 'enable'
