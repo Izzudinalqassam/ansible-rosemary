@@ -69,7 +69,8 @@
     user: root
     job: >-
       (echo "--- $(date) restart {{ item }} ---" &&
-      container=$(docker ps --filter "name=visionaire" --format "{{ '{{' }}.Names{{ '}}' }}" | grep -E "node-$(echo {{ item }} | grep -oP '\d+$')$" | head -n1) &&
+      node_num=$(echo {{ item }} | grep -oP '\d+$' | awk '{print $1+0}') &&
+      container=$(docker ps --filter "name=visionaire" --format "{{ '{{' }}.Names{{ '}}' }}" | grep -E "node-${node_num}$" | head -n1) &&
       [ -n "$container" ] &&
       echo "  → docker restart $container" &&
       docker restart "$container")
