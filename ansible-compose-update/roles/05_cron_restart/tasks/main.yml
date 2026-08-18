@@ -68,12 +68,7 @@
     weekday: "*"
     user: root
     job: >-
-      (echo "--- $(date) restart {{ item }} ---" &&
-      node_num=$(echo {{ item }} | grep -oP '\d+$' | awk '{print $1+0}') &&
-      container=$(docker ps --filter "name=visionaire" --format "{{ '{{' }}.Names{{ '}}' }}" | grep -E "node-${node_num}$" | head -n1) &&
-      [ -n "$container" ] &&
-      echo "  → docker restart $container" &&
-      docker restart "$container")
+      docker restart visionaire4-node-$(echo {{ item }} | grep -oP '\d+$' | awk '{print $1+0}')
       >> /var/log/cron-compose-restart.log 2>&1
   loop: "{{ node_list }}"
   when: cron_restart_action == 'enable'
