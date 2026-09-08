@@ -1,0 +1,96 @@
+---
+# ══════════════════════════════════════════════════════════════════════════════
+# Playbook   : docker_pull.yml
+# Tujuan     : Docker login ke registry lalu pull image di source server (server01)
+# Caller     : User (CLI)
+# Dependensi : group_vars/cikeas_servers.yml (credential SSH server01)
+# Side Effects: docker login + docker pull di server01
+#
+# Cara pakai :
+#   # Pull image default (di-set di vars bawah)
+#   ansible-playbook playbooks/docker_pull.yml
+#
+#   # Pull image custom via extra vars (DIREKOMENDASIKAN)
+#   ansible-playbook playbooks/docker_pull.yml \
+#     -e "docker_image=registry.gitlab.com/nodefluxio/cloud/analytics/pipelines/vlm-pipeline:on-premise-0.2.0-intel"
+#
+#   # Syntax check
+#   ansible-playbook playbooks/docker_pull.yml --syntax-check
+# ══════════════════════════════════════════════════════════════════════════════
+- name: "🐳 Docker Login & Pull Image di server01"
+  hosts: source_server
+  become: true
+  gather_facts: false
+
+  vars:
+    # ── Ganti image di sini, atau pakai -e "docker_image=..." saat run ─────────
+    docker_image: "registry.gitlab.com/nodefluxio/cloud/analytics/pipelines/vlm-pipeline:on-premise-0.2.0-intel"
+
+    # ── Registry credential ────────────────────────────────────────────────────
+    registry_url: "registry.gitlab.com"
+    registry_user: "maintenance@nodeflux.io"
+    registry_password: "glpat-LBzYvXNxpI90g2D2NPgEPG86MQp1OjU1cGNzCw.01.121w41sfq"
+
+  tasks:
+    # ── Cek Docker terinstall ──────────────────────────────────────────────────
+    - name: Cek Docker terinstall di server01
+      ansible.builtin.command: docker --version
+      register: docker_version
+      changed_when: false
+      failed_when: docker_version.rc != 0
+
+    - name: "🐳 Versi Docker di {{ inventory_hostname }}"
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} ({{ ansible_host }}) | {{ docker_version.stdout }}"
+
+    # ── Docker login ───────────────────────────────────────────────────────────
+    - name: "🔑 Docker login ke {{ registry_url }}"
+      ansible.builtin.shell: |
+        echo "{{ registry_password }}" | docker login {{ registry_url }} \
+          -u {{ registry_user }} \
+          --password-stdin
+      register: login_result
+      changed_when: false
+      no_log: true    # sembunyikan password dari output log
+
+    - name: "✅ Login berhasil ke {{ registry_url }}"
+      ansible.builtin.debug:
+        msg: "Login ke {{ registry_url }} berhasil sebagai {{ registry_user }}"
+      when: login_result.rc == 0
+
+    # ── Cek image sudah ada atau belum ────────────────────────────────────────
+    - name: Cek apakah image sudah ada di server01
+      ansible.builtin.command: docker image inspect {{ docker_image }}
+      register: image_exists
+      changed_when: false
+      failed_when: false
+
+    - name: "⏭️  Image sudah ada di {{ inventory_hostname }}, skip pull"
+      ansible.builtin.debug:
+        msg: "Image {{ docker_image }} sudah ada, skip pull."
+      when: image_exists.rc == 0
+
+    # ── Pull image ─────────────────────────────────────────────────────────────
+    - name: "📥 Pull image: {{ docker_image }}"
+      ansible.builtin.command: docker pull {{ docker_image }}
+      register: pull_result
+      when: image_exists.rc != 0
+      async: 3600
+      poll: 15
+
+    - name: "✅ Pull selesai"
+      ansible.builtin.debug:
+        msg: "✅ {{ inventory_hostname }} | Image berhasil di-pull: {{ docker_image }}"
+      when: image_exists.rc != 0 and pull_result.rc == 0
+
+    # ── Konfirmasi image ada di lokal ─────────────────────────────────────────
+    - name: Verifikasi image tersimpan di server01
+      ansible.builtin.command: >
+        docker images --format "{% raw %}{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}{% endraw %}"
+        {{ docker_image }}
+      register: image_check
+      changed_when: false
+
+    - name: "🖼️  Image di {{ inventory_hostname }}"
+      ansible.builtin.debug:
+        msg: "{{ image_check.stdout | default('Image tidak ditemukan') }}"
