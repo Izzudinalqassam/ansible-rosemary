@@ -68,7 +68,8 @@
     weekday: "*"
     user: root
     job: >-
-      docker restart visionaire4-node-$(echo {{ item }} | grep -oP '\d+$' | awk '{print $1+0}')
+      { echo "=== $(date '+%Y-%m-%d %H:%M:%S') restart {{ item }} ===";
+      docker restart visionaire4-node-$(echo {{ item }} | grep -oP '\d+$' | awk '{print $1+0}'); }
       >> /var/log/cron-compose-restart.log 2>&1
   loop: "{{ node_list }}"
   when: cron_restart_action == 'enable'

@@ -10,32 +10,40 @@ Repository ini berisi playbook Ansible untuk mendistribusikan Docker image ke du
 Laptop ──SSH──▶ Server Cikeas (14 server, 10.200.168.x)
 Laptop ──SSH──▶ server01 ──SSH──▶ Server Bali (19 server, 10.18.200.x)
                (delegate_to)
+
+[Mode khusus Bali internal]:
+Laptop ──SSH──▶ bali01 ──SCP/SSH──▶ bali02..bali19
+               (delegate_to bali01)
 ```
 
 ## Struktur Direktori & Komponen Utama
 
-- [ansible.cfg](file:///home/rosemary/ansible-docker-dist/ansible.cfg)
+- [ansible.cfg](file:///home/rosemary/ansible-alqa/ansible-docker-dist/ansible.cfg)
   - Konfigurasi global: inventory path, remote_user, transfer_method=scp
 
-- [inventory/](file:///home/rosemary/ansible-docker-dist/inventory/)
-  - [hosts.ini](file:///home/rosemary/ansible-docker-dist/inventory/hosts.ini): Daftar semua server
+- [inventory/](file:///home/rosemary/ansible-alqa/ansible-docker-dist/inventory/)
+  - [hosts.ini](file:///home/rosemary/ansible-alqa/ansible-docker-dist/inventory/hosts.ini): Daftar semua server
     - `[source_server]`: server01 (pull & save image)
     - `[cikeas_servers]`: server01–14 (direct SSH dari laptop)
     - `[bali_servers]`: bali01–19 (via server01 sebagai perantara)
     - `[target_servers:children]`: parent group = cikeas + bali
-  - [group_vars/cikeas_servers.yml](file:///home/rosemary/ansible-docker-dist/inventory/group_vars/cikeas_servers.yml): Credential Cikeas
-  - [group_vars/bali_servers.yml](file:///home/rosemary/ansible-docker-dist/inventory/group_vars/bali_servers.yml): Credential Bali (dipakai server01 via sshpass)
-  - [hosts.ini.example](file:///home/rosemary/ansible-docker-dist/inventory/hosts.ini.example): Template tanpa credential asli
+  - [group_vars/cikeas_servers.yml](file:///home/rosemary/ansible-alqa/ansible-docker-dist/inventory/group_vars/cikeas_servers.yml): Credential Cikeas
+  - [group_vars/bali_servers.yml](file:///home/rosemary/ansible-alqa/ansible-docker-dist/inventory/group_vars/bali_servers.yml): Credential Bali (dipakai server01/bali01 via sshpass)
+  - [hosts.ini.example](file:///home/rosemary/ansible-alqa/ansible-docker-dist/inventory/hosts.ini.example): Template tanpa credential asli
 
-- [playbooks/](file:///home/rosemary/ansible-docker-dist/playbooks/)
-  - [docker_distribute.yml](file:///home/rosemary/ansible-docker-dist/playbooks/docker_distribute.yml): Playbook utama
+- [playbooks/](file:///home/rosemary/ansible-alqa/ansible-docker-dist/playbooks/)
+  - [docker_distribute.yml](file:///home/rosemary/ansible-alqa/ansible-docker-dist/playbooks/docker_distribute.yml): Playbook utama (Cikeas + Bali via server01)
     - Phase 1: Pull image di server01
     - Phase 2: Save image ke tar.gz di server01
     - Phase 3a: SCP tar.gz → Cikeas (dari laptop, serial 2)
     - Phase 3b: SCP tar.gz → Bali (server01 push via delegate_to, serial 3)
     - Phase 4a: docker load di Cikeas (dari laptop, serial 2)
     - Phase 4b: docker load di Bali (server01 SSH ke Bali via delegate_to, serial 3)
-  - [ping_all.yml](file:///home/rosemary/ansible-docker-dist/playbooks/ping_all.yml): Test koneksi semua server
+  - [bali_distribute.yml](file:///home/rosemary/ansible-alqa/ansible-docker-dist/playbooks/bali_distribute.yml): Distribusi internal Bali (bali01 → bali lainnya)
+    - Phase 1: Cek file tar.gz tersedia di bali01 (source)
+    - Phase 2: bali01 SCP tar.gz ke bali02..bali19 (skip jika sudah ada)
+    - Phase 3: docker load di semua bali (via delegate_to bali01, skip jika sudah loaded)
+  - [ping_all.yml](file:///home/rosemary/ansible-alqa/ansible-docker-dist/playbooks/ping_all.yml): Test koneksi semua server
     - Cikeas: ansible ping module langsung
     - Bali: sshpass ssh via delegate_to server01
 

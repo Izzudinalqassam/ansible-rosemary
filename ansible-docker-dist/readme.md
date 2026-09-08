@@ -5,6 +5,8 @@ Image di-pull di server01 Cikeas, disimpan sebagai `tar.gz`, lalu didistribusika
 - **14 server Cikeas** — langsung dari laptop via Ansible
 - **19 server Bali (Polda Bali)** — laptop tidak bisa SSH ke Bali, semua operasi Bali dijalankan oleh **server01 Cikeas sebagai perantara**
 
+> 🔒 **Distribusi Bali dilakukan satu per satu** (`serial: 1`) supaya network server01 tidak jebol.
+
 ---
 
 ## 🗺️ Arsitektur Jaringan
@@ -41,18 +43,25 @@ Image di-pull di server01 Cikeas, disimpan sebagai `tar.gz`, lalu didistribusika
 ## 🔄 Alur Distribusi Image
 
 ```
+[docker_distribute.yml — Full Flow]
 PHASE 1 & 2 — di server01 Cikeas
   docker pull [image]
   docker save → /tmp/docker_images/[image].tar.gz
 
 PHASE 3a & 4a — ke server Cikeas (dari laptop)
-  Laptop ──SCP──→ server02-14 Cikeas : copy tar.gz
-  Laptop ──SSH──→ server02-14 Cikeas : docker load
+  Laptop ──SCP──→ server02-14 Cikeas : copy tar.gz  (serial: 2)
+  Laptop ──SSH──→ server02-14 Cikeas : docker load   (serial: 2)
 
 PHASE 3b & 4b — ke server Bali (server01 yang kerja)
-  server01 ──SCP──→ bali01-19 : copy tar.gz
-  server01 ──SSH──→ bali01-19 : docker load
+  server01 ──SCP──→ bali01-19 : copy tar.gz          (serial: 3)
+  server01 ──SSH──→ bali01-19 : docker load           (serial: 3)
   (Laptop hanya orchestrate via Ansible delegate_to)
+
+[bali_distribute.yml — SCP ke Bali saja, satu per satu]
+PHASE 1 — Cek file tar.gz tersedia di server01
+PHASE 2 — server01 ──SCP──→ bali01, bali02, ... bali19 (serial: 1)
+  ↳ Satu per satu supaya network server01 tidak jebol
+  ↳ Skip otomatis jika file sudah ada di target
 ```
 
 ---
@@ -66,10 +75,11 @@ PHASE 3b & 4b — ke server Bali (server01 yang kerja)
 - [Skenario Penggunaan](#-skenario-penggunaan)
   - [Distribute ke SEMUA server](#1-distribute-ke-semua-server-cikeas--bali)
   - [Distribute ke Cikeas saja](#2-distribute-ke-cikeas-saja)
-  - [Distribute ke Bali saja](#3-distribute-ke-bali-saja)
-  - [Test koneksi semua server](#4-test-koneksi-semua-server)
-  - [Ganti image / versi baru](#5-ganti-image--versi-baru)
-  - [Jalankan per phase](#6-jalankan-per-phase-bertahap)
+  - [Distribute ke Bali saja — full flow](#3-distribute-ke-bali-saja)
+  - [SCP ke Bali saja — satu per satu](#4-scp-ke-bali-satu-per-satu-bali_distributeyml)
+  - [Test koneksi semua server](#5-test-koneksi-semua-server)
+  - [Ganti image / versi baru](#6-ganti-image--versi-baru)
+  - [Jalankan per phase](#7-jalankan-per-phase-bertahap)
 - [Variabel](#-variabel)
 - [Troubleshooting](#-troubleshooting)
 
@@ -114,8 +124,9 @@ ansible-docker-dist/
 │   ├── bali_ssh.cfg                     # (tidak dipakai, bisa dihapus)
 │   └── establish_jump.sh               # (tidak dipakai, bisa dihapus)
 ├── playbooks/
-│   ├── docker_distribute.yml           # Playbook utama distribusi image
-│   └── ping_all.yml                    # Playbook test koneksi semua server
+│   ├── docker_distribute.yml           # Playbook utama: pull → save → SCP → load (Cikeas + Bali)
+│   ├── bali_distribute.yml             # SCP dari server01 ke tiap bali, satu per satu
+│   └── ping_all.yml                    # Test koneksi semua server
 └── roles/
     ├── 01_pull_image/tasks/main.yml    # docker pull di server01
     ├── 02_save_image/tasks/main.yml    # docker save → tar.gz di server01
@@ -242,7 +253,7 @@ ansible-playbook playbooks/docker_distribute.yml \
 Kalau Cikeas sudah update, tinggal push ke Bali. Pastikan tar.gz sudah ada di server01 (`/tmp/docker_images/`).
 
 ```bash
-# Hanya target Bali (server01 yang kerja ke Bali)
+# Hanya target Bali — SCP + docker load (server01 yang kerja, serial: 3)
 ansible-playbook playbooks/docker_distribute.yml --limit bali_servers
 ```
 
@@ -262,7 +273,35 @@ ansible-playbook playbooks/docker_distribute.yml \
 
 ---
 
-### 4. Test koneksi semua server
+### 4. SCP ke Bali satu per satu (`bali_distribute.yml`)
+
+Playbook khusus jika hanya ingin **SCP file ke Bali**, tanpa docker pull/save/load. Server01 yang push ke tiap bali **satu per satu** (`serial: 1`) agar network tidak jebol.
+
+**Prasyarat:** File tar.gz sudah ada di `/tmp/docker_images/` di server01 (sudah ada setelah Phase 2 `docker_distribute.yml` dijalankan).
+
+```bash
+# SCP ke semua bali server (satu per satu)
+ansible-playbook playbooks/bali_distribute.yml
+
+# SCP ke bali tertentu saja
+ansible-playbook playbooks/bali_distribute.yml --limit bali05,bali06
+
+# Syntax check
+ansible-playbook playbooks/bali_distribute.yml --syntax-check
+```
+
+**Yang terjadi:**
+1. Cek file tar.gz tersedia di server01 — **fail fast** jika tidak ada
+2. server01 SCP → bali01, tunggu selesai
+3. server01 SCP → bali02, tunggu selesai
+4. ... dst sampai bali19
+5. Skip otomatis jika file sudah ada di target
+
+> 💡 Gunakan playbook ini jika koneksi ke Bali lambat atau tidak stabil — jalankan satu per satu lebih aman daripada serial 3 sekaligus.
+
+---
+
+### 5. Test koneksi semua server
 
 Wajib dijalankan pertama kali, dan tiap ada perubahan server.
 
@@ -292,7 +331,7 @@ ansible-playbook playbooks/ping_all.yml --tags ping_bali
 
 ---
 
-### 5. Ganti image / versi baru
+### 6. Ganti image / versi baru
 
 Edit variabel di `playbooks/docker_distribute.yml`. Semua phase pakai variabel yang sama:
 
@@ -305,6 +344,14 @@ vars:
   image_dest_dir: "/data"
 ```
 
+Jika menggunakan `bali_distribute.yml`, update juga variabel di playbook tersebut:
+
+```yaml
+vars:
+  image_tar_filename: "visionaire4_4.58.0.tar.gz"   # ← sesuaikan
+  image_source_dir: "/tmp/docker_images"
+```
+
 Setelah ubah, jalankan ulang dari awal:
 
 ```bash
@@ -315,7 +362,7 @@ ansible-playbook playbooks/docker_distribute.yml
 
 ---
 
-### 6. Jalankan per phase (bertahap)
+### 7. Jalankan per phase (bertahap)
 
 Berguna saat debug atau koneksi lambat.
 
@@ -426,10 +473,13 @@ Playbook aman dijalankan berulang. Setiap step cek dulu:
 
 ### Serial SCP
 
-- Cikeas: SCP berjalan 2 server sekaligus (`serial: 2`)
-- Bali: server01 push ke 3 server sekaligus (`serial: 3`)
+| Playbook | Target | Serial | Catatan |
+|---|---|---|---|
+| `docker_distribute.yml` | Cikeas | `serial: 2` | Dari laptop langsung |
+| `docker_distribute.yml` | Bali | `serial: 3` | server01 push ke Bali |
+| `bali_distribute.yml` | Bali | `serial: 1` | **Satu per satu** — aman untuk network lambat |
 
-Ini agar server01 tidak kewalahan melayani terlalu banyak koneksi simultan.
+Gunakan `bali_distribute.yml` jika koneksi ke Bali tidak stabil atau ingin kontrol lebih ketat.
 
 ---
 
@@ -439,3 +489,4 @@ Ini agar server01 tidak kewalahan melayani terlalu banyak koneksi simultan.
 - **Tar.gz tidak dihapus secara default** (`cleanup_tar: false`) — berguna jika perlu load ulang
 - **Set `cleanup_tar: true`** di playbook jika disk terbatas dan image sudah confirmed loaded
 - Server01 punya **dual role**: source server (pull/save) + jumphost (push ke Bali)
+- **Gunakan `bali_distribute.yml`** jika hanya perlu SCP ke Bali dan ingin serial satu per satu — lebih aman saat network lambat atau tidak stabil

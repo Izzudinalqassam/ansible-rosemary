@@ -1,0 +1,103 @@
+---
+# ══════════════════════════════════════════════════════════════════════════════
+# Playbook   : bali_distribute.yml
+# Tujuan     : SCP tar.gz dari server01 Cikeas ke semua bali server (satu per satu)
+# Caller     : User (CLI)
+# Dependensi : group_vars/bali_servers.yml (credential SSH Bali)
+# Side Effects: SCP file ke /tmp di tiap bali server
+#
+# Arsitektur :
+#   Laptop ──SSH──▶ server01 (Cikeas) ──SCP satu per satu──▶ bali01..bali19
+#                   (delegate_to: server01, serial: 1)
+#
+# Cara pakai :
+#   # SCP ke semua bali server
+#   ansible-playbook playbooks/bali_distribute.yml
+#
+#   # SCP ke bali tertentu saja
+#   ansible-playbook playbooks/bali_distribute.yml --limit bali05,bali06
+#
+#   # Ganti nama file tar via extra vars
+#   ansible-playbook playbooks/bali_distribute.yml \
+#     -e "image_tar_filename=visionaire4_4.57.52.tar.gz"
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 1: Cek file tar.gz tersedia di server01 (source)
+# ══════════════════════════════════════════════════════════════════════════════
+- name: "PHASE 1 — Cek file tar.gz tersedia di server01 (Cikeas)"
+  hosts: source_server
+  become: true
+  gather_facts: false
+
+  vars:
+    image_tar_filename: "visionaire4_4.57.51-rc1.tar.gz"
+    image_source_dir: "/tmp/docker_images"
+
+  tasks:
+    - name: "Cek file {{ image_tar_filename }} ada di server01"
+      ansible.builtin.shell: |
+        test -f {{ image_source_dir }}/{{ image_tar_filename }} && echo EXISTS || echo NOT_EXISTS
+      register: source_file_check
+      changed_when: false
+
+    - name: "❌ File tidak ditemukan di server01"
+      ansible.builtin.fail:
+        msg: |
+          File {{ image_source_dir }}/{{ image_tar_filename }} tidak ditemukan di server01 (10.200.168.41).
+          Pastikan Phase 2 (save image) sudah dijalankan terlebih dahulu.
+          Atau jalankan: ansible-playbook playbooks/docker_distribute.yml --tags phase1,phase2
+      when: "'NOT_EXISTS' in source_file_check.stdout"
+
+    - name: "✅ File ditemukan di server01, siap di-SCP ke Bali"
+      ansible.builtin.debug:
+        msg: "{{ image_source_dir }}/{{ image_tar_filename }} tersedia. Mulai distribusi ke semua bali server..."
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 2: SCP tar.gz dari server01 → tiap bali server, satu per satu
+# serial: 1 supaya network tidak jebol
+# ══════════════════════════════════════════════════════════════════════════════
+- name: "PHASE 2 — SCP tar.gz: server01 → bali servers (serial satu per satu)"
+  hosts: bali_servers
+  gather_facts: false
+  serial: 1    # ← satu per satu, jaga network
+
+  vars:
+    image_tar_filename: "visionaire4_4.57.51-rc1.tar.gz"
+    image_source_dir: "/tmp/docker_images"   # lokasi file di server01
+    image_dest_dir: "/tmp"                   # tujuan di tiap bali server
+
+  tasks:
+    - name: "Cek apakah tar sudah ada di {{ inventory_hostname }} ({{ ansible_host }})"
+      ansible.builtin.shell: |
+        sshpass -p "{{ ansible_ssh_pass }}" ssh \
+          -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+          {{ ansible_user }}@{{ ansible_host }} \
+          "test -f {{ image_dest_dir }}/{{ image_tar_filename }} && echo EXISTS || echo NOT_EXISTS"
+      delegate_to: server01
+      register: bali_file_check
+      changed_when: false
+
+    - name: "⏭️  Skip SCP — file sudah ada di {{ inventory_hostname }}"
+      ansible.builtin.debug:
+        msg: "File {{ image_tar_filename }} sudah ada di {{ inventory_hostname }} ({{ ansible_host }}), skip SCP."
+      when: "'EXISTS' in bali_file_check.stdout"
+
+    - name: "📤 SCP tar.gz: server01 → {{ inventory_hostname }} ({{ ansible_host }})"
+      ansible.builtin.shell: |
+        sshpass -p "{{ ansible_ssh_pass }}" scp \
+          -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+          {{ image_source_dir }}/{{ image_tar_filename }} \
+          {{ ansible_user }}@{{ ansible_host }}:{{ image_dest_dir }}/{{ image_tar_filename }}
+      delegate_to: server01
+      when: "'NOT_EXISTS' in bali_file_check.stdout"
+      async: 3600
+      poll: 15
+      register: bali_scp_result
+
+    - name: "✅ SCP selesai — {{ inventory_hostname }}"
+      ansible.builtin.debug:
+        msg: "✅ Berhasil: server01 → {{ inventory_hostname }} ({{ ansible_host }}) | {{ image_dest_dir }}/{{ image_tar_filename }}"
+      when: "'NOT_EXISTS' in bali_file_check.stdout and bali_scp_result is changed"
