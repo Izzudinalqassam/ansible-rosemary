@@ -1,6 +1,16 @@
 ---
 # =====================================================================
-# STEP 1: Install NVIDIA Driver (versi recommended, otomatis dipilihkan)
+# STEP 1: Install NVIDIA Driver (autodetect: open-module vs proprietary)
+#
+# Logika deteksi:
+#   1. Ambil versi driver recommended dari ubuntu-drivers
+#   2. Cek apakah paket nvidia-driver-XXX-open tersedia di apt
+#   3. Kalau ada → install -open (wajib untuk GPU Ada Lovelace / Hopper+)
+#   4. Kalau tidak ada → install driver biasa (proprietary/closed)
+#
+# GPU yang wajib -open: Ada Lovelace (RTX 40xx, L40), Hopper (H100),
+#   Blackwell, dan seterusnya. Ditandai di dmesg:
+#   "requires use of the NVIDIA open kernel modules"
 # =====================================================================
 
 - name: Update apt cache
@@ -29,15 +39,84 @@
   changed_when: false
   when: gpu_check.stdout != ""
 
-- name: Install NVIDIA driver versi recommended (otomatis via ubuntu-drivers autoinstall)
-  ansible.builtin.shell: "ubuntu-drivers autoinstall"
-  register: driver_install
-  changed_when: "'Installing' in driver_install.stdout or 'installing' in driver_install.stdout"
+# ── Deteksi versi recommended ──────────────────────────────────────────────
+- name: Ambil versi driver recommended dari ubuntu-drivers
+  ansible.builtin.shell: |
+    ubuntu-drivers devices 2>/dev/null \
+      | grep 'recommended' \
+      | grep -oP 'nvidia-driver-\K[0-9]+' \
+      | head -1
+  register: recommended_version
+  changed_when: false
   when:
     - gpu_check.stdout != ""
     - current_driver.stdout is defined
     - current_driver.stdout == ""
 
+- name: Tampilkan versi driver yang direkomendasikan
+  ansible.builtin.debug:
+    msg: "Driver recommended: nvidia-driver-{{ recommended_version.stdout | default('(tidak terdeteksi)') }}"
+  when:
+    - gpu_check.stdout != ""
+    - current_driver.stdout is defined
+    - current_driver.stdout == ""
+
+# ── Cek apakah paket -open tersedia ────────────────────────────────────────
+- name: Cek ketersediaan paket nvidia-driver-{{ recommended_version.stdout | default('0') }}-open di apt
+  ansible.builtin.shell: |
+    apt-cache show nvidia-driver-{{ recommended_version.stdout }}-open 2>/dev/null \
+      | grep -c "^Package:" || echo "0"
+  register: open_pkg_available
+  changed_when: false
+  when:
+    - gpu_check.stdout != ""
+    - current_driver.stdout is defined
+    - current_driver.stdout == ""
+    - recommended_version.stdout is defined
+    - recommended_version.stdout != ""
+
+# ── Tentukan paket final yang akan diinstall ───────────────────────────────
+- name: Set nama paket driver (pilih -open kalau tersedia, fallback ke proprietary)
+  ansible.builtin.set_fact:
+    nvidia_driver_package: >-
+      nvidia-driver-{{ recommended_version.stdout }}{{
+        '-open' if (open_pkg_available.stdout | default('0') | int) > 0
+        else ''
+      }}
+  when:
+    - gpu_check.stdout != ""
+    - current_driver.stdout is defined
+    - current_driver.stdout == ""
+    - recommended_version.stdout is defined
+    - recommended_version.stdout != ""
+
+- name: Tampilkan paket driver final yang akan diinstall
+  ansible.builtin.debug:
+    msg: >-
+      Install: {{ nvidia_driver_package }}
+      {{ '(open kernel module — wajib untuk GPU generasi ini)' if nvidia_driver_package | default('') is search('-open') else '(proprietary/closed module)' }}
+  when: nvidia_driver_package is defined
+
+# ── Install driver ─────────────────────────────────────────────────────────
+- name: Install NVIDIA driver (versi dan varian sesuai hasil deteksi)
+  ansible.builtin.apt:
+    name: "{{ nvidia_driver_package }}"
+    state: present
+  when:
+    - gpu_check.stdout != ""
+    - current_driver.stdout is defined
+    - current_driver.stdout == ""
+    - nvidia_driver_package is defined
+
+- name: Info skip install driver (sudah terpasang sebelumnya)
+  ansible.builtin.debug:
+    msg: "Driver NVIDIA sudah terpasang (versi: {{ current_driver.stdout }}), skip install."
+  when:
+    - gpu_check.stdout != ""
+    - current_driver.stdout is defined
+    - current_driver.stdout != ""
+
+# ── Reboot jika diperlukan ─────────────────────────────────────────────────
 - name: Cek apakah server perlu reboot (misal karena driver baru terpasang)
   ansible.builtin.stat:
     path: /var/run/reboot-required

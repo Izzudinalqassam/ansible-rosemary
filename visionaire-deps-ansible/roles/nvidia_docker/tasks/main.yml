@@ -14,18 +14,27 @@
   changed_when: false
   when: gpu_check_nd.stdout != ""
 
-- name: Download & pasang GPG key nvidia-docker
-  ansible.builtin.shell: |
-    curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | apt-key add -
-  args:
-    warn: false
+- name: Buat direktori keyrings untuk GPG key nvidia-docker
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
   when: gpu_check_nd.stdout != ""
 
-- name: Tambahkan repository list nvidia-docker
-  ansible.builtin.get_url:
-    url: "https://nvidia.github.io/nvidia-docker/{{ distribution_id.stdout }}/nvidia-docker.list"
-    dest: /etc/apt/sources.list.d/nvidia-docker.list
-    mode: "0644"
+- name: Download & pasang GPG key nvidia-docker (modern, tanpa apt-key)
+  ansible.builtin.shell: |
+    curl -fsSL https://nvidia.github.io/nvidia-docker/gpgkey | gpg --dearmor -o /etc/apt/keyrings/nvidia-docker.gpg
+  args:
+    creates: /etc/apt/keyrings/nvidia-docker.gpg
+  when: gpu_check_nd.stdout != ""
+
+- name: Tambahkan repository list nvidia-docker (signed-by GPG key baru)
+  ansible.builtin.shell: |
+    curl -fsSL https://nvidia.github.io/nvidia-docker/{{ distribution_id.stdout }}/nvidia-docker.list \
+      | sed 's|deb |deb [signed-by=/etc/apt/keyrings/nvidia-docker.gpg] |g' \
+      > /etc/apt/sources.list.d/nvidia-docker.list
+  args:
+    creates: /etc/apt/sources.list.d/nvidia-docker.list
   when: gpu_check_nd.stdout != ""
 
 - name: Update apt cache setelah tambah repo nvidia-docker
