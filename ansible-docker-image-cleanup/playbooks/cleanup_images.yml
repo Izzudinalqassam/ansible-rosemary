@@ -1,0 +1,17 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Playbook   : cleanup_images.yml
+# Tujuan     : Bersihkan Docker image yang tidak dipakai di semua server
+# Caller     : ansible-playbook playbooks/cleanup_images.yml
+# Flow       : 00_scan_images → 01_cleanup_unused_images
+# Side Effects: Docker images dihapus dari disk target host
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: "🐳 Docker Image Cleanup — Scan & Remove Unused Images"
+  hosts: servers
+  gather_facts: true
+  serial: 1                  # jalankan host satu per satu agar mudah di-monitor
+
+  roles:
+    - role: 00_scan_images         # Step 1 & 2: scan + pisahkan used vs unused
+    - role: 01_cleanup_unused_images   # Step 3: hapus yang unused

@@ -1,0 +1,134 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Role       : 00_scan_images
+# Tujuan     : Scan semua Docker image di host dan pisahkan mana yang used/unused
+# Caller     : playbooks/cleanup_images.yml
+# Dependensi : Docker daemon harus running di target host
+# Main Fns   : Ambil daftar semua image, ambil image yang sedang dipakai container
+#              aktif, hitung selisihnya (unused), tampilkan ringkasan ke operator
+# Side Effects: None (read-only, tidak mengubah apapun)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── Step 1: Ambil semua image yang ada di docker ────────────────────────────
+- name: "🔍 Ambil semua Docker image (ID + RepoTags)"
+  ansible.builtin.command: >
+    docker images --format "{{ '{{' }}.ID{{ '}}' }}\t{{ '{{' }}.Repository{{ '}}' }}:{{ '{{' }}.Tag{{ '}}' }}"
+  register: all_images_raw
+  changed_when: false
+  become: true
+
+- name: Set fact — daftar semua image ID
+  ansible.builtin.set_fact:
+    all_image_ids: >-
+      {{
+        all_images_raw.stdout_lines
+        | map('split', '\t')
+        | map(attribute=0)
+        | list
+      }}
+    all_image_tags: >-
+      {{
+        all_images_raw.stdout_lines
+        | map('split', '\t')
+        | list
+      }}
+
+# ─── Step 2: Ambil image ID yang sedang dipakai container (running/stopped) ──
+- name: "📦 Ambil image ID yang sedang dipakai container (running & stopped)"
+  ansible.builtin.command: >
+    docker ps -a --format "{{ '{{' }}.ImageID{{ '}}' }}"
+  register: used_image_ids_raw
+  changed_when: false
+  become: true
+
+- name: Set fact — image ID yang sedang used (short ID)
+  ansible.builtin.set_fact:
+    used_image_ids: >-
+      {{
+        used_image_ids_raw.stdout_lines
+        | map('regex_replace', '^sha256:', '')
+        | map('truncate', 12, True, '')
+        | list
+        | unique
+      }}
+
+# ─── Step 3: Tentukan unused images ──────────────────────────────────────────
+- name: Set fact — unused images (image yang tidak dipakai container manapun)
+  ansible.builtin.set_fact:
+    unused_images: >-
+      {{
+        all_image_tags
+        | selectattr(0, 'search', '^(?!' + (used_image_ids | join('|')) + ')')
+        | list
+      }}
+
+# Alternatif lebih sederhana — pakai docker images -f dangling=false + compare
+- name: "🗑️  Ambil daftar unused image via docker image ls filter"
+  ansible.builtin.shell: |
+    # Ambil semua image ID (short)
+    ALL=$(docker images --format "{{'{{'}} .ID {{'}}'}}")
+    # Ambil image ID yang dipakai container (running & stopped)
+    USED=$(docker ps -a --format "{{'{{'}} .Image {{'}}'}}" | xargs -I{} docker inspect --format "{{'{{'}} .Id {{'}}'}}" {} 2>/dev/null | sed 's/sha256://' | cut -c1-12 | sort -u)
+    # Bandingkan
+    for img in $ALL; do
+      short=$(echo $img | cut -c1-12)
+      if echo "$USED" | grep -q "^$short"; then
+        echo "USED|$img|$(docker inspect --format '{{"{{"}} index .RepoTags 0 {{"}}"}}' $img 2>/dev/null || echo '<none>')"
+      else
+        echo "UNUSED|$img|$(docker inspect --format '{{"{{"}} index .RepoTags 0 {{"}}"}}' $img 2>/dev/null || echo '<none>')"
+      fi
+    done
+  register: image_scan_result
+  changed_when: false
+  become: true
+
+- name: Set fact — parsed used images
+  ansible.builtin.set_fact:
+    parsed_used_images: >-
+      {{
+        image_scan_result.stdout_lines
+        | select('match', '^USED\\|')
+        | map('split', '|')
+        | list
+      }}
+
+- name: Set fact — parsed unused images
+  ansible.builtin.set_fact:
+    parsed_unused_images: >-
+      {{
+        image_scan_result.stdout_lines
+        | select('match', '^UNUSED\\|')
+        | map('split', '|')
+        | list
+      }}
+
+# ─── Step 4: Tampilkan ringkasan scan ────────────────────────────────────────
+- name: "📊 Ringkasan Scan Docker Images — {{ inventory_hostname }}"
+  ansible.builtin.debug:
+    msg: |
+      ════════════════════════════════════════
+      Host     : {{ inventory_hostname }} ({{ ansible_host }})
+      Total    : {{ image_scan_result.stdout_lines | length }} image
+      ✅ Used   : {{ parsed_used_images | length }} image
+      🗑️  Unused: {{ parsed_unused_images | length }} image
+      ════════════════════════════════════════
+
+- name: "✅ [USED] Image yang sedang dipakai (TIDAK akan dihapus)"
+  ansible.builtin.debug:
+    msg: "  [USED]   {{ item[1] | truncate(15, True, '') }}  →  {{ item[2] }}"
+  loop: "{{ parsed_used_images }}"
+  loop_control:
+    label: "{{ item[2] }}"
+
+- name: "🗑️  [UNUSED] Image yang akan dihapus"
+  ansible.builtin.debug:
+    msg: "  [UNUSED] {{ item[1] | truncate(15, True, '') }}  →  {{ item[2] }}"
+  loop: "{{ parsed_unused_images }}"
+  loop_control:
+    label: "{{ item[2] }}"
+  when: parsed_unused_images | length > 0
+
+- name: "✅ Tidak ada unused image di {{ inventory_hostname }}"
+  ansible.builtin.debug:
+    msg: "Semua image sedang digunakan. Tidak ada yang perlu dihapus."
+  when: parsed_unused_images | length == 0

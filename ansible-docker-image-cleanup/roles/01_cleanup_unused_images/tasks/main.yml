@@ -1,0 +1,90 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Role       : 01_cleanup_unused_images
+# Tujuan     : Hapus Docker image yang tidak dipakai container manapun
+# Caller     : playbooks/cleanup_images.yml
+# Dependensi : Role 00_scan_images harus sudah dijalankan (butuh fact parsed_unused_images)
+# Main Fns   : Hapus unused image satu per satu, skip jika image masih dipakai,
+#              tampilkan summary hasil cleanup
+# Side Effects: Docker image dihapus dari disk (disk space freed)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── Guard: skip jika tidak ada unused image ─────────────────────────────────
+- name: "✅ Skip cleanup — tidak ada unused image di {{ inventory_hostname }}"
+  ansible.builtin.debug:
+    msg: "Tidak ada unused image untuk dihapus. Host bersih!"
+  when: parsed_unused_images | length == 0
+
+# ─── Hapus unused images satu per satu ───────────────────────────────────────
+- name: "🗑️  Hapus unused image: {{ item[2] }} ({{ item[1] | truncate(12, True, '') }})"
+  ansible.builtin.command: >
+    docker rmi {{ item[1] }}
+  register: rmi_results
+  changed_when: "'Untagged' in rmi_result_single.stdout or 'Deleted' in rmi_result_single.stdout"
+  vars:
+    rmi_result_single: "{{ rmi_results }}"
+  loop: "{{ parsed_unused_images }}"
+  loop_control:
+    label: "{{ item[2] }}"
+  become: true
+  ignore_errors: true
+  when: parsed_unused_images | length > 0
+
+# ─── Catat image yang gagal dihapus (misal: masih ada dependency) ─────────────
+- name: Set fact — hasil cleanup (berhasil vs gagal)
+  ansible.builtin.set_fact:
+    cleanup_success: >-
+      {{
+        rmi_results.results
+        | default([])
+        | selectattr('rc', 'equalto', 0)
+        | list
+      }}
+    cleanup_failed: >-
+      {{
+        rmi_results.results
+        | default([])
+        | selectattr('rc', 'ne', 0)
+        | list
+      }}
+  when: parsed_unused_images | length > 0
+
+# ─── Tampilkan summary ────────────────────────────────────────────────────────
+- name: "📋 Summary Cleanup — {{ inventory_hostname }}"
+  ansible.builtin.debug:
+    msg: |
+      ════════════════════════════════════════
+      Host         : {{ inventory_hostname }} ({{ ansible_host }})
+      Unused Found : {{ parsed_unused_images | length }} image
+      ✅ Dihapus   : {{ cleanup_success | default([]) | length }} image
+      ❌ Gagal     : {{ cleanup_failed | default([]) | length }} image
+      ════════════════════════════════════════
+  when: parsed_unused_images | length > 0
+
+- name: "❌ Image yang gagal dihapus (masih ada dependency / in use)"
+  ansible.builtin.debug:
+    msg: "  FAILED: {{ item.item[2] }}  —  {{ item.stderr | default('no error info') | truncate(120) }}"
+  loop: "{{ cleanup_failed | default([]) }}"
+  loop_control:
+    label: "{{ item.item[2] | default('unknown') }}"
+  when:
+    - parsed_unused_images | length > 0
+    - cleanup_failed | default([]) | length > 0
+
+# ─── Bonus: bersihkan dangling images (layer tanpa tag) ──────────────────────
+- name: "🧹 Bersihkan dangling images (layer tanpa tag / <none>:<none>)"
+  ansible.builtin.shell: |
+    DANGLING=$(docker images -f "dangling=true" -q)
+    if [ -n "$DANGLING" ]; then
+      docker rmi $DANGLING
+      echo "Removed: $DANGLING"
+    else
+      echo "No dangling images"
+    fi
+  register: dangling_cleanup
+  changed_when: "'Removed' in dangling_cleanup.stdout"
+  become: true
+
+- name: "🧹 Hasil cleanup dangling images — {{ inventory_hostname }}"
+  ansible.builtin.debug:
+    msg: "{{ dangling_cleanup.stdout_lines }}"

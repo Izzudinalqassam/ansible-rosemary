@@ -1,0 +1,15 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Playbook   : scan_only.yml
+# Tujuan     : Hanya scan Docker image tanpa menghapus apapun (dry-run)
+# Caller     : ansible-playbook playbooks/scan_only.yml
+# Flow       : 00_scan_images saja
+# Side Effects: None (read-only)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: "🔍 Docker Image Scan Only (Dry Run — tidak ada yang dihapus)"
+  hosts: servers
+  gather_facts: true
+
+  roles:
+    - role: 00_scan_images
