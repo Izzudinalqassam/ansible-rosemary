@@ -1,6 +1,8 @@
 ---
 # =====================================================================
-# STEP 2: Install Docker CE + atur docker root dir (/data atau /root)
+# STEP 2: Install Docker CE + atur docker & containerd root dir (/data atau /root)
+# Aturan: kalau /data ada → /data/docker & /data/containerd
+#         kalau /data tidak ada → /root/docker & /root/containerd
 # =====================================================================
 
 - name: Update apt package index
@@ -53,11 +55,14 @@
     state: present
     update_cache: yes
 
-- name: Stop docker sementara sebelum atur data-root (biar data tidak kesimpan di lokasi default dulu)
+- name: Stop containerd & docker sebelum atur data-root (wajib, agar daemon.json baru kepake)
   ansible.builtin.service:
-    name: docker
+    name: "{{ item }}"
     state: stopped
-  when: docker_installed_check.rc != 0
+  loop:
+    - docker
+    - containerd
+  failed_when: false  # tidak error kalau service belum jalan (fresh install)
 
 - name: Cek apakah folder /data ada di server ini
   ansible.builtin.stat:
@@ -67,10 +72,13 @@
 - name: Set docker_data_root sesuai kondisi server (/data kalau ada, /root kalau tidak)
   ansible.builtin.set_fact:
     docker_data_root: "{{ docker_root_if_data_exists if data_folder_check.stat.exists else docker_root_if_no_data }}"
+    containerd_data_root: "{{ containerd_root_if_data_exists if data_folder_check.stat.exists else containerd_root_if_no_data }}"
 
-- name: Tampilkan lokasi docker data-root yang dipakai
+- name: Tampilkan lokasi data-root yang dipakai
   ansible.builtin.debug:
-    msg: "Docker data-root untuk server ini: {{ docker_data_root }}"
+    msg:
+      - "Docker data-root     : {{ docker_data_root }}"
+      - "Containerd data-root : {{ containerd_data_root }}"
 
 - name: Buat direktori untuk docker data-root
   ansible.builtin.file:
@@ -78,6 +86,38 @@
     state: directory
     mode: "0711"
 
+- name: Buat direktori untuk containerd data-root
+  ansible.builtin.file:
+    path: "{{ containerd_data_root }}"
+    state: directory
+    mode: "0711"
+
+# ── Konfigurasi containerd ─────────────────────────────────────────────────
+- name: Buat direktori /etc/containerd
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: "0755"
+
+- name: Generate default containerd config (kalau belum ada)
+  ansible.builtin.shell: |
+    containerd config default > /etc/containerd/config.toml
+  args:
+    creates: /etc/containerd/config.toml
+
+- name: Set containerd root ke lokasi yang benar
+  ansible.builtin.replace:
+    path: /etc/containerd/config.toml
+    regexp: '^root\s*=\s*".*"'
+    replace: 'root = "{{ containerd_data_root }}"'
+
+- name: Restart containerd dengan data-root baru
+  ansible.builtin.service:
+    name: containerd
+    state: restarted
+    enabled: yes
+
+# ── Konfigurasi docker daemon ──────────────────────────────────────────────
 - name: Buat direktori /etc/docker
   ansible.builtin.file:
     path: /etc/docker
@@ -93,10 +133,10 @@
   vars:
     with_nvidia_runtime: false
 
-- name: Start & enable docker service
+- name: Restart docker dengan data-root baru (restarted agar daemon.json benar-benar kepake)
   ansible.builtin.service:
     name: docker
-    state: started
+    state: restarted
     enabled: yes
 
 - name: Tambahkan user "{{ ansible_user }}" ke group docker (biar bisa jalanin docker tanpa sudo)
