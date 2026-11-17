@@ -1,0 +1,53 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Role        : 06_check_containers
+# Tujuan      : Cek nama container yang sedang berjalan di tiap node compose
+# Caller      : playbooks/check_containers.yml
+# Dependensi  : docker (harus sudah terinstall di remote host)
+# Main Tasks  : parse node list → docker ps per node → tampilkan nama container
+# Side Effects: None (read-only)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── Parse node list dari inventory ──────────────────────────────────────────
+- name: Set node list dari inventory
+  ansible.builtin.set_fact:
+    node_list: "{{ compose_nodes.split(',') }}"
+
+- name: "📋 Server {{ inventory_hostname }} ({{ ansible_host }}) — Nodes yang dicek"
+  ansible.builtin.debug:
+    msg: "{{ node_list | join(', ') }}"
+
+# ─── Cek container yang berjalan per node ────────────────────────────────────
+- name: "🐳 Ambil nama container dari tiap node"
+  ansible.builtin.shell: |
+    docker ps \
+      --filter "name={{ item }}" \
+      --format "{% raw %}{{.Names}}{% endraw %}" \
+    2>/dev/null
+  register: container_results
+  changed_when: false
+  loop: "{{ node_list }}"
+  loop_control:
+    label: "{{ item }}"
+
+# ─── Tampilkan hasil per node ─────────────────────────────────────────────────
+- name: "📦 Container yang berjalan di {{ inventory_hostname }}"
+  ansible.builtin.debug:
+    msg: >-
+      [{{ inventory_hostname }}] Node: {{ item.item }}
+      → Container: {{ item.stdout_lines | join(', ') | default('(tidak ada)', true) }}
+  loop: "{{ container_results.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# ─── Summary ringkas per server ───────────────────────────────────────────────
+- name: "📊 Summary container di {{ inventory_hostname }} ({{ ansible_host }})"
+  ansible.builtin.debug:
+    msg: |
+      ┌─────────────────────────────────────────────────────────
+      │ Server : {{ inventory_hostname }} ({{ ansible_host }})
+      ├─────────────────────────────────────────────────────────
+      {% for result in container_results.results %}
+      │ {{ result.item | ljust(20) }} → {{ result.stdout_lines | join(', ') | default('(tidak ada)') }}
+      {% endfor %}
+      └─────────────────────────────────────────────────────────

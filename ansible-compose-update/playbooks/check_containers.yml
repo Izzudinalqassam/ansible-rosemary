@@ -1,0 +1,19 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# Playbook    : check_containers.yml
+# Tujuan      : Cek nama container yang sedang berjalan di semua nodes tiap server
+# Caller      : User (CLI) → ansible-playbook playbooks/check_containers.yml
+# Dependensi  : roles/06_check_containers, inventory/hosts.ini (compose_nodes var)
+# Side Effects: None (read-only, tidak mengubah apapun)
+# ═══════════════════════════════════════════════════════════════════════════════
+- name: "🐳 Cek Nama Container yang Berjalan di Semua Nodes"
+  hosts: servers
+  become: true
+  gather_facts: false
+  serial: 15
+
+  vars:
+    compose_base_dir: "/data/compose"
+
+  roles:
+    - roles/06_check_containers
